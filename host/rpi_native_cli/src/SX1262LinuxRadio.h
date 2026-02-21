@@ -36,7 +36,7 @@ public:
     int bandwidth_hz = 625000;
     int spreading_factor = 8;
     int coding_rate = 8;
-    int preamble_len = 16;
+    int preamble_len = 17;
   };
 
   explicit SX1262LinuxRadio(const Config& cfg);

@@ -971,9 +971,15 @@ void MyMesh::formatRadioDiagReply(char *reply) {
   const uint8_t st = radio_driver.debugGetStatus();
   const uint16_t irq = radio_driver.debugGetIrqStatus();
   const uint16_t errs = radio_driver.debugGetDeviceErrors();
+  const auto cfg = radio_driver.getConfig();
   sprintf(reply,
-          "{\"status\":%u,\"irq\":%u,\"irq_hex\":\"0x%04X\",\"dev_errors\":%u,\"dev_errors_hex\":\"0x%04X\"}",
-          st, irq, irq, errs, errs);
+          "{\"status\":%u,\"irq\":%u,\"irq_hex\":\"0x%04X\",\"dev_errors\":%u,\"dev_errors_hex\":\"0x%04X\","
+          "\"freq\":%d,\"bw\":%d,\"sf\":%d,\"cr\":%d,\"tx\":%d,\"pre\":%d,\"sync\":\"0x%04X\","
+          "\"cs_pin\":%d,\"txen\":%d,\"rxen\":%d,\"dio2_rf\":%d,\"tcxo\":%d}",
+          st, irq, irq, errs, errs,
+          cfg.frequency_hz, cfg.bandwidth_hz, cfg.spreading_factor, cfg.coding_rate, cfg.tx_power_dbm,
+          cfg.preamble_len, cfg.sync_word,
+          cfg.cs_pin, cfg.txen_pin, cfg.rxen_pin, cfg.use_dio2_rf_switch ? 1 : 0, cfg.use_dio3_tcxo ? 1 : 0);
 #else
   strcpy(reply, "not supported");
 #endif
