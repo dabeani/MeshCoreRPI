@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2025 Scott Powell / rippleradios.com
+Copyright (c) 2025 Scott Powell / rippleradios.com (there are modifications made by Bernhard Marker to run the base Code on native Raspberry PI)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
