@@ -13,6 +13,10 @@
 #include <string>
 #include <thread>
 
+#ifdef __linux__
+#include <unistd.h>
+#endif
+
 StdRNG fast_rng;
 SimpleMeshTables tables;
 MyMesh the_mesh(board, radio_driver, *new ArduinoMillis(), fast_rng, rtc_clock, tables);
@@ -120,25 +124,33 @@ int main(int argc, char** argv) {
       radio_set_tx_power(tx_dbm);
     }
 
-    std::thread cli([&]() {
-      std::string line;
-      while (!g_stop.load()) {
-        std::cout << "meshcore-repeater> " << std::flush;
-        if (!std::getline(std::cin, line)) {
-          g_stop.store(true);
-          break;
+    bool interactive_cli = true;
+#ifdef __linux__
+    interactive_cli = ::isatty(STDIN_FILENO) != 0;
+#endif
+
+    std::thread cli;
+    if (interactive_cli) {
+      cli = std::thread([&]() {
+        std::string line;
+        while (!g_stop.load()) {
+          std::cout << "meshcore-repeater> " << std::flush;
+          if (!std::getline(std::cin, line)) {
+            g_stop.store(true);
+            break;
+          }
+          if (line == "quit" || line == "exit") {
+            g_stop.store(true);
+            continue;
+          }
+          if (!line.empty()) {
+            char reply[200]{};
+            the_mesh.handleCommand(0, line.data(), reply);
+            if (reply[0]) std::cout << reply << "\n";
+          }
         }
-        if (line == "quit" || line == "exit") {
-          g_stop.store(true);
-          continue;
-        }
-        if (!line.empty()) {
-          char reply[200]{};
-          the_mesh.handleCommand(0, line.data(), reply);
-          if (reply[0]) std::cout << reply << "\n";
-        }
-      }
-    });
+      });
+    }
 
     while (!g_stop.load()) {
       the_mesh.loop();
