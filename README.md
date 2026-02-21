@@ -81,6 +81,13 @@ They can also be managed via LoRa in the mobile app by using the Remote Manageme
 
 MeshCore is designed for devices listed in the [MeshCore Flasher](https://flasher.meshcore.co.uk)
 
+For Raspberry Pi 2/3/4 + Waveshare SX1262 SPI HAT host-side integration helpers, see:
+
+- [Raspberry Pi Waveshare setup guide](./docs/rpi_waveshare_hat.md)
+- [RPI scripts](./scripts/rpi/README.md)
+- Native codebase-linked C++ runtime included: `scripts/rpi/run_native_meshcore_cli.sh`
+- Dedicated isolated environment: `RaspberryPiMC/` (runtime, config, service)
+
 ## 📜 License
 
 MeshCore is open-source software released under the MIT License. You are free to use, modify, and distribute it for personal and commercial projects.

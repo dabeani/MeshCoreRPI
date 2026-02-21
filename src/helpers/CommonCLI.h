@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Mesh.h"
+#include <cstring>
 #include <helpers/IdentityStore.h>
 #include <helpers/SensorManager.h>
 #include <helpers/ClientACL.h>
@@ -75,6 +76,7 @@ public:
   virtual void formatStatsReply(char *reply) = 0;
   virtual void formatRadioStatsReply(char *reply) = 0;
   virtual void formatPacketStatsReply(char *reply) = 0;
+  virtual void formatRadioDiagReply(char *reply) { std::strcpy(reply, "not supported"); }
   virtual mesh::LocalIdentity& getSelfId() = 0;
   virtual void saveIdentity(const mesh::LocalIdentity& new_id) = 0;
   virtual void clearStats() = 0;

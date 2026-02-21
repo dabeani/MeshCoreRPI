@@ -966,6 +966,19 @@ void MyMesh::formatRadioStatsReply(char *reply) {
   StatsFormatHelper::formatRadioStats(reply, _radio, radio_driver, getTotalAirTime(), getReceiveAirTime());
 }
 
+void MyMesh::formatRadioDiagReply(char *reply) {
+#ifdef __linux__
+  const uint8_t st = radio_driver.debugGetStatus();
+  const uint16_t irq = radio_driver.debugGetIrqStatus();
+  const uint16_t errs = radio_driver.debugGetDeviceErrors();
+  sprintf(reply,
+          "{\"status\":%u,\"irq\":%u,\"irq_hex\":\"0x%04X\",\"dev_errors\":%u,\"dev_errors_hex\":\"0x%04X\"}",
+          st, irq, irq, errs, errs);
+#else
+  strcpy(reply, "not supported");
+#endif
+}
+
 void MyMesh::formatPacketStatsReply(char *reply) {
   StatsFormatHelper::formatPacketStats(reply, radio_driver, getNumSentFlood(), getNumSentDirect(), 
                                        getNumRecvFlood(), getNumRecvDirect());
