@@ -248,6 +248,25 @@ void SX1262LinuxRadio::sxSetPacketTypeLora() {
   spiCommand(0x8A, &p, 1);
 }
 
+void SX1262LinuxRadio::sxSetSyncWord(uint16_t sync_word) {
+  // SX126x LoRa sync-word register at 0x0740 / 0x0741.
+  // Use WriteRegister opcode (0x0D): [opcode, addrMSB, addrLSB, data...]
+#ifdef __linux__
+  waitBusyLow();
+  uint8_t tx[5] = {
+    0x0D,
+    0x07,
+    0x40,
+    static_cast<uint8_t>((sync_word >> 8) & 0xFF),
+    static_cast<uint8_t>(sync_word & 0xFF),
+  };
+  uint8_t rx[sizeof(tx)] = {0};
+  spiTransfer(tx, rx, sizeof(tx));
+#else
+  (void)sync_word;
+#endif
+}
+
 void SX1262LinuxRadio::sxSetDio2AsRfSwitchCtrl(bool enable) {
   uint8_t p = enable ? 0x01 : 0x00;
   spiCommand(0x9D, &p, 1);
@@ -469,6 +488,7 @@ void SX1262LinuxRadio::begin() {
   sxClearDeviceErrors();
 
   sxSetPacketTypeLora();
+  sxSetSyncWord(cfg.sync_word);
   sxSetDio2AsRfSwitchCtrl(cfg.use_dio2_rf_switch);
   sxSetPaConfig();
   sxSetRfFrequency(cfg.frequency_hz);

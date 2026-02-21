@@ -32,6 +32,7 @@ public:
     bool use_dio2_rf_switch = true;
     int frequency_hz = 869618000;
     int tx_power_dbm = 22;
+    uint16_t sync_word = 0x1424; // MeshCore private LoRa sync word
     int bandwidth_hz = 625000;
     int spreading_factor = 8;
     int coding_rate = 8;
@@ -88,6 +89,7 @@ private:
   void sxSetStandby();
   void sxSetRegulatorMode(uint8_t mode);
   void sxSetPacketTypeLora();
+  void sxSetSyncWord(uint16_t sync_word);
   void sxSetDio2AsRfSwitchCtrl(bool enable);
   void sxSetDio3AsTcxoCtrl(uint8_t voltage, uint32_t delay_us);
   void sxSetRfFrequency(int hz);
