@@ -1,29 +1,52 @@
 ## MeshCore RPI (forked MeshCore)
-When you have e.g a Waveshare LoRa HAT for Raspberry PI, now you can compile or RUN out of this code (base MeshCore v1.13.0) a MeshCore Repeater or Companion directly on your Raspberry PI.
 
-* NOT fully tested - but Repeater is Working, and connection via Ethernet to the Companion via MobilePhone!
+With a Waveshare LoRa HAT on Raspberry Pi, this fork (based on MeshCore `v1.13.0`) can build and run native MeshCore:
 
-For more information about RPI & LoRa HATs you can check out pyMC_Repeater (https://github.com/rightup/pyMC_Repeater/blob/3e47122daee85734d323009d67f606257828698f/radio-settings.json). Settings like this should be respected in the /etc/raspberrypimc/repeater.env or /etc/raspberrypimc/companion.env!
+- Repeater
+- Companion
 
-Only for Binary install you need the following packages: 
-sudo apt-get update && sudo apt-get install -y libgpiod-dev gpiod jq curl
+Current status:
 
-Binary install:
+- Repeater is working.
+- From Mobile Phone to Companion via Ethernet works
+
+Reference hardware settings (recommended to mirror in env files):
+
+- pyMC_Repeater radio settings JSON: https://github.com/rightup/pyMC_Repeater/blob/3e47122daee85734d323009d67f606257828698f/radio-settings.json
+- Apply matching values in:
+	- `/etc/raspberrypimc/repeater.env`
+	- `/etc/raspberrypimc/companion.env`
+
+### 1) Binary install prerequisites
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libgpiod-dev gpiod jq curl
+```
+
+### 2) Binary install (repeater)
+
+```bash
 sudo dpkg -i raspberrypimc-native-repeater_*.deb
 sudo nano /etc/raspberrypimc/repeater.env
 sudo systemctl enable --now raspberrypimc-repeater.service
 systemctl is-enabled raspberrypimc-repeater.service
 systemctl status raspberrypimc-repeater.service --no-pager
+```
 
-IF you want to Build it on your own, here we go:
+### 3) Build on Raspberry Pi (advanced)
 
-Advanced installation on RPI (with possibility for compiling):
-sudo apt-get update && sudo apt-get install -y python3 python3-pip python3-venv python3-dev libgpiod-dev gpiod jq curl
+```bash
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip python3-venv python3-dev libgpiod-dev gpiod jq curl
+```
 
-You must compile on Linux aarch64 (best: directly on the Pi),
+Build target should be Linux `aarch64` (best: build directly on the Pi).
+
+```bash
 cd ~/MeshCoreRPI
-apt update
-apt install -y python3-venv python3-full
+sudo apt update
+sudo apt install -y python3-venv python3-full
 
 python3 -m venv .venv
 . .venv/bin/activate
@@ -32,32 +55,50 @@ pip install platformio
 
 platformio run -e RaspberryPiMC_native_repeater
 platformio run -e RaspberryPiMC_native_companion
+```
 
+### 4) Repeater autostart flow
 
-REPEATER
-Use this on your Pi (repeater-only autostart):
+```bash
 cd ~/MeshCoreRPI
 git pull
-rm -R ~/MeshCoreRPI/RaspberryPiMC/dist/*
+rm -rf ~/MeshCoreRPI/RaspberryPiMC/dist/*
 bash RaspberryPiMC/build_deb.sh repeater
 sudo dpkg -i RaspberryPiMC/dist/raspberrypimc-native-repeater_*.deb
 sudo nano /etc/raspberrypimc/repeater.env
 sudo systemctl enable --now raspberrypimc-repeater.service
+```
 
-Verify it survives reboot:
+Verify persistence after reboot:
+
+```bash
 systemctl is-enabled raspberrypimc-repeater.service
 systemctl status raspberrypimc-repeater.service --no-pager
+```
 
-After editing repeater env later:
+After env changes:
+
+```bash
 sudo systemctl restart raspberrypimc-repeater.service
+```
 
-COMPANION:
+### 5) Companion service flow
+
+```bash
 cd ~/MeshCoreRPI
 git pull
 bash RaspberryPiMC/build_deb.sh companion
 sudo dpkg -i RaspberryPiMC/dist/raspberrypimc-native-companion_*.deb
 sudo systemctl restart raspberrypimc-companion.service
 systemctl status raspberrypimc-companion.service --no-pager
+```
 
-Debug:
-/usr/lib/raspberrypimc/companion/program  --freq 869618000 --sf 8 --bw 62500 --cr 8 --tx 22 --spi-bus 0 --spi-cs 0 --cs-pin 21 --spi-speed 1000000 --reset-pin 18 --busy-pin 20 --irq-pin 16 --txen-pin 13 --rxen-pin 12 --no-tcxo --no-dio2-rf
+### 6) Companion debug run (manual)
+
+```bash
+/usr/lib/raspberrypimc/companion/program \
+	--freq 869618000 --sf 8 --bw 62500 --cr 8 --tx 22 \
+	--spi-bus 0 --spi-cs 0 --cs-pin 21 --spi-speed 1000000 \
+	--reset-pin 18 --busy-pin 20 --irq-pin 16 --txen-pin 13 --rxen-pin 12 \
+	--no-tcxo --no-dio2-rf
+```
