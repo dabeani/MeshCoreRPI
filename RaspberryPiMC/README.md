@@ -95,6 +95,20 @@ sudo systemctl enable --now raspberrypimc-repeater.service
 sudo systemctl enable --now raspberrypimc-companion.service
 ```
 
+For Waveshare SX1262 HAT, ensure these keys exist in `/etc/raspberrypimc/repeater.env`:
+
+```dotenv
+RPI_CS_PIN=21
+RPI_TXEN_PIN=13
+RPI_RXEN_PIN=12
+RPI_USE_TCXO=0
+RPI_USE_DIO2_RF=0
+```
+
+These map to runtime flags equivalent to:
+
+`--cs-pin 21 --txen-pin 13 --rxen-pin 12 --no-tcxo --no-dio2-rf`
+
 ### 2b) Persistent autostart on boot (repeater only)
 
 If you only want the repeater to auto-start after reboot:

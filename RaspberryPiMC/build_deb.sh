@@ -76,6 +76,14 @@ DATA_DIR="\${RPI_DATA_DIR:-/var/lib/raspberrypimc/userdata}"
 mkdir -p "\$DATA_DIR" >/dev/null 2>&1 || true
 export MESHCORE_DATA_DIR="\$DATA_DIR"
 
+EXTRA_RADIO_ARGS=()
+if [[ "${RPI_USE_TCXO:-0}" == "0" ]]; then
+  EXTRA_RADIO_ARGS+=(--no-tcxo)
+fi
+if [[ "${RPI_USE_DIO2_RF:-0}" == "0" ]]; then
+  EXTRA_RADIO_ARGS+=(--no-dio2-rf)
+fi
+
 if [[ "${ROLE}" == "companion" ]]; then
   BLE_BRIDGE=/usr/lib/raspberrypimc/companion/ble_nus_bridge.py
   BLE_PID=""
@@ -124,12 +132,14 @@ elif [[ "${ROLE}" == "companion" ]]; then
     --tx "\${RPI_TX_DBM:-22}" \
     --spi-bus "\${RPI_SPI_BUS:-0}" \
     --spi-cs "\${RPI_SPI_CS:-0}" \
+    --cs-pin "\${RPI_CS_PIN:-21}" \
     --spi-speed "\${RPI_SPI_SPEED_HZ:-8000000}" \
     --reset-pin "\${RPI_RESET_PIN:-18}" \
     --busy-pin "\${RPI_BUSY_PIN:-20}" \
     --irq-pin "\${RPI_IRQ_PIN:-16}" \
     --txen-pin "\${RPI_TXEN_PIN:--1}" \
     --rxen-pin "\${RPI_RXEN_PIN:--1}" \
+    "\${EXTRA_RADIO_ARGS[@]}" \
     --tcp-port "\${RPI_COMPANION_TCP_PORT:-5000}" \
     "\$@"
 else
@@ -141,12 +151,14 @@ else
     --tx "\${RPI_TX_DBM:-22}" \
     --spi-bus "\${RPI_SPI_BUS:-0}" \
     --spi-cs "\${RPI_SPI_CS:-0}" \
+    --cs-pin "\${RPI_CS_PIN:-21}" \
     --spi-speed "\${RPI_SPI_SPEED_HZ:-8000000}" \
     --reset-pin "\${RPI_RESET_PIN:-18}" \
     --busy-pin "\${RPI_BUSY_PIN:-20}" \
     --irq-pin "\${RPI_IRQ_PIN:-16}" \
     --txen-pin "\${RPI_TXEN_PIN:--1}" \
     --rxen-pin "\${RPI_RXEN_PIN:--1}" \
+    "\${EXTRA_RADIO_ARGS[@]}" \
     "\$@"
 fi
 EOF
@@ -164,12 +176,15 @@ RPI_TX_DBM=22
 RPI_DATA_DIR=/var/lib/raspberrypimc/userdata
 RPI_SPI_BUS=0
 RPI_SPI_CS=0
+RPI_CS_PIN=21
 RPI_SPI_SPEED_HZ=8000000
 RPI_RESET_PIN=18
 RPI_BUSY_PIN=20
 RPI_IRQ_PIN=16
 RPI_TXEN_PIN=-1
 RPI_RXEN_PIN=-1
+RPI_USE_TCXO=0
+RPI_USE_DIO2_RF=0
 EOF
 fi
 chmod 0644 "$PKG_ROOT/etc/raspberrypimc/${ROLE}.env"
