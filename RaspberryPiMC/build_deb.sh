@@ -59,8 +59,20 @@ cp "$BIN_PATH" "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/program"
 chmod 0755 "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/program"
 
 if [[ "$ROLE" == "companion" ]]; then
-  cp "$SCRIPT_DIR/ble_nus_bridge.py" "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/ble_nus_bridge.py"
-  chmod 0755 "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/ble_nus_bridge.py"
+  BLE_SRC=""
+  if [[ -f "$SCRIPT_DIR/ble_nus_bridge.py" ]]; then
+    BLE_SRC="$SCRIPT_DIR/ble_nus_bridge.py"
+  elif [[ -f "$SCRIPT_DIR/dist/meshcore-rpi-portable/ble_nus_bridge.py" ]]; then
+    BLE_SRC="$SCRIPT_DIR/dist/meshcore-rpi-portable/ble_nus_bridge.py"
+  fi
+
+  if [[ -n "$BLE_SRC" ]]; then
+    cp "$BLE_SRC" "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/ble_nus_bridge.py"
+    chmod 0755 "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/ble_nus_bridge.py"
+  else
+    echo "Warning: ble_nus_bridge.py not found; companion package built without BLE bridge script."
+    echo "         BLE mode (RPI_COMPANION_BLE_ENABLE=1) will not work until script is installed."
+  fi
 fi
 
 cat > "$PKG_ROOT/usr/bin/raspberrypimc-${ROLE}" <<EOF

@@ -11,7 +11,6 @@ import socket
 import struct
 from gi.repository import GLib
 
-
 BLUEZ_SERVICE_NAME = "org.bluez"
 DBUS_OM_IFACE = "org.freedesktop.DBus.ObjectManager"
 DBUS_PROP_IFACE = "org.freedesktop.DBus.Properties"
