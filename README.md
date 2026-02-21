@@ -1,3 +1,7 @@
+Would be nice if you support me: https://buymeacoffee.com/bmks — thank you very much!!
+
+Important: Use at your own risk. You, the device owner, are responsible for any damage, data loss, or bricked devices.
+
 ## MeshCore RPI (forked MeshCore)
 
 With a Waveshare LoRa HAT on Raspberry Pi, this fork (based on MeshCore `v1.13.0`) can build and run native MeshCore:
