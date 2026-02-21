@@ -1004,6 +1004,25 @@ void MyMesh::clearStats() {
 }
 
 void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply) {
+  if (!command) {
+    strcpy(reply, "Unknown command");
+    return;
+  }
+
+  // Some transports/terminals use CRLF; trim trailing whitespace so commands like
+  // "radio-diag\r" match the CommonCLI dispatch table.
+  {
+    size_t n = strlen(command);
+    while (n > 0) {
+      const char c = command[n - 1];
+      if (c == '\r' || c == '\n' || c == ' ' || c == '\t') {
+        command[--n] = 0;
+        continue;
+      }
+      break;
+    }
+  }
+
   if (region_load_active) {
     if (StrHelper::isBlank(command)) {  // empty/blank line, signal to terminate 'load' operation
       region_map = temp_map;  // copy over the temp instance as new current map
