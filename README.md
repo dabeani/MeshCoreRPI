@@ -1,124 +1,63 @@
-## About MeshCore
+## MeshCore RPI (forked MeshCore)
+When you have e.g a Waveshare LoRa HAT for Raspberry PI, now you can compile or RUN out of this code (base MeshCore v1.13.0) a MeshCore Repeater or Companion directly on your Raspberry PI.
 
-MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios. It is designed for developers who want to create resilient, decentralized communication networks that work without the internet.
+* NOT fully tested - but Repeater is Working, and connection via Ethernet to the Companion via MobilePhone!
 
-## 🔍 What is MeshCore?
+For more information about RPI & LoRa HATs you can check out pyMC_Repeater (https://github.com/rightup/pyMC_Repeater/blob/3e47122daee85734d323009d67f606257828698f/radio-settings.json). Settings like this should be respected in the /etc/raspberrypimc/repeater.env or /etc/raspberrypimc/companion.env!
 
-MeshCore now supports a range of LoRa devices, allowing for easy flashing without the need to compile firmware manually. Users can flash a pre-built binary using tools like Adafruit ESPTool and interact with the network through a serial console.
-MeshCore provides the ability to create wireless mesh networks, similar to Meshtastic and Reticulum but with a focus on lightweight multi-hop packet routing for embedded projects. Unlike Meshtastic, which is tailored for casual LoRa communication, or Reticulum, which offers advanced networking, MeshCore balances simplicity with scalability, making it ideal for custom embedded solutions., where devices (nodes) can communicate over long distances by relaying messages through intermediate nodes. This is especially useful in off-grid, emergency, or tactical situations where traditional communication infrastructure is unavailable.
+Only for Binary install you need the following packages: 
+sudo apt-get update && sudo apt-get install -y libgpiod-dev gpiod jq curl
 
-## ⚡ Key Features
+Binary install:
+sudo dpkg -i raspberrypimc-native-repeater_*.deb
+sudo nano /etc/raspberrypimc/repeater.env
+sudo systemctl enable --now raspberrypimc-repeater.service
+systemctl is-enabled raspberrypimc-repeater.service
+systemctl status raspberrypimc-repeater.service --no-pager
 
-* Multi-Hop Packet Routing
-  * Devices can forward messages across multiple nodes, extending range beyond a single radio's reach.
-  * Supports up to a configurable number of hops to balance network efficiency and prevent excessive traffic.
-  * Nodes use fixed roles where "Companion" nodes are not repeating messages at all to prevent adverse routing paths from being used.
-* Supports LoRa Radios – Works with Heltec, RAK Wireless, and other LoRa-based hardware.
-* Decentralized & Resilient – No central server or internet required; the network is self-healing.
-* Low Power Consumption – Ideal for battery-powered or solar-powered devices.
-* Simple to Deploy – Pre-built example applications make it easy to get started.
+IF you want to Build it on your own, here we go:
 
-## 🎯 What Can You Use MeshCore For?
+Advanced installation on RPI (with possibility for compiling):
+sudo apt-get update && sudo apt-get install -y python3 python3-pip python3-venv python3-dev libgpiod-dev gpiod jq curl
 
-* Off-Grid Communication: Stay connected even in remote areas.
-* Emergency Response & Disaster Recovery: Set up instant networks where infrastructure is down.
-* Outdoor Activities: Hiking, camping, and adventure racing communication.
-* Tactical & Security Applications: Military, law enforcement, and private security use cases.
-* IoT & Sensor Networks: Collect data from remote sensors and relay it back to a central location.
+You must compile on Linux aarch64 (best: directly on the Pi),
+cd ~/MeshCoreRPI
+apt update
+apt install -y python3-venv python3-full
 
-## 🚀 How to Get Started
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+pip install platformio
 
-- Watch the [MeshCore Intro Video](https://www.youtube.com/watch?v=t1qne8uJBAc) by Andy Kirby.
-- Read through our [Frequently Asked Questions](./docs/faq.md) section.
-- Flash the MeshCore firmware on a supported device.
-- Connect with a supported client.
+platformio run -e RaspberryPiMC_native_repeater
+platformio run -e RaspberryPiMC_native_companion
 
-For developers;
 
-- Install [PlatformIO](https://docs.platformio.org) in [Visual Studio Code](https://code.visualstudio.com).
-- Clone and open the MeshCore repository in Visual Studio Code.
-- See the example applications you can modify and run:
-  - [Companion Radio](./examples/companion_radio) - For use with an external chat app, over BLE, USB or WiFi.
-  - [KISS Modem](./examples/kiss_modem) - Serial KISS protocol bridge for host applications. ([protocol docs](./docs/kiss_modem_protocol.md))
-  - [Simple Repeater](./examples/simple_repeater) - Extends network coverage by relaying messages.
-  - [Simple Room Server](./examples/simple_room_server) - A simple BBS server for shared Posts.
-  - [Simple Secure Chat](./examples/simple_secure_chat) - Secure terminal based text communication between devices.
-  - [Simple Sensor](./examples/simple_sensor) - Remote sensor node with telemetry and alerting.
+REPEATER
+Use this on your Pi (repeater-only autostart):
+cd ~/MeshCoreRPI
+git pull
+rm -R ~/MeshCoreRPI/RaspberryPiMC/dist/*
+bash RaspberryPiMC/build_deb.sh repeater
+sudo dpkg -i RaspberryPiMC/dist/raspberrypimc-native-repeater_*.deb
+sudo nano /etc/raspberrypimc/repeater.env
+sudo systemctl enable --now raspberrypimc-repeater.service
 
-The Simple Secure Chat example can be interacted with through the Serial Monitor in Visual Studio Code, or with a Serial USB Terminal on Android.
+Verify it survives reboot:
+systemctl is-enabled raspberrypimc-repeater.service
+systemctl status raspberrypimc-repeater.service --no-pager
 
-## ⚡️ MeshCore Flasher
+After editing repeater env later:
+sudo systemctl restart raspberrypimc-repeater.service
 
-We have prebuilt firmware ready to flash on supported devices.
+COMPANION:
+cd ~/MeshCoreRPI
+git pull
+bash RaspberryPiMC/build_deb.sh companion
+sudo dpkg -i RaspberryPiMC/dist/raspberrypimc-native-companion_*.deb
+sudo systemctl restart raspberrypimc-companion.service
+systemctl status raspberrypimc-companion.service --no-pager
 
-- Launch https://flasher.meshcore.co.uk
-- Select a supported device
-- Flash one of the firmware types:
-  - Companion, Repeater or Room Server
-- Once flashing is complete, you can connect with one of the MeshCore clients below.
-
-## 📱 MeshCore Clients
-
-**Companion Firmware**
-
-The companion firmware can be connected to via BLE, USB or WiFi depending on the firmware type you flashed.
-
-- Web: https://app.meshcore.nz
-- Android: https://play.google.com/store/apps/details?id=com.liamcottle.meshcore.android
-- iOS: https://apps.apple.com/us/app/meshcore/id6742354151?platform=iphone
-- NodeJS: https://github.com/liamcottle/meshcore.js
-- Python: https://github.com/fdlamotte/meshcore-cli
-
-**Repeater and Room Server Firmware**
-
-The repeater and room server firmwares can be setup via USB in the web config tool.
-
-- https://config.meshcore.dev
-
-They can also be managed via LoRa in the mobile app by using the Remote Management feature.
-
-## 🛠 Hardware Compatibility
-
-MeshCore is designed for devices listed in the [MeshCore Flasher](https://flasher.meshcore.co.uk)
-
-For Raspberry Pi 2/3/4 + Waveshare SX1262 SPI HAT host-side integration helpers, see:
-
-- [Raspberry Pi Waveshare setup guide](./docs/rpi_waveshare_hat.md)
-- [RPI scripts](./scripts/rpi/README.md)
-- Native codebase-linked C++ runtime included: `scripts/rpi/run_native_meshcore_cli.sh`
-- Dedicated isolated environment: `RaspberryPiMC/` (runtime, config, service)
-
-## 📜 License
-
-MeshCore is open-source software released under the MIT License. You are free to use, modify, and distribute it for personal and commercial projects.
-
-## Contributing
-
-Please submit PR's using 'dev' as the base branch!
-For minor changes just submit your PR and I'll try to review it, but for anything more 'impactful' please open an Issue first and start a discussion. Is better to sound out what it is you want to achieve first, and try to come to a consensus on what the best approach is, especially when it impacts the structure or architecture of this codebase.
-
-Here are some general principals you should try to adhere to:
-* Keep it simple. Please, don't think like a high-level lang programmer. Think embedded, and keep code concise, without any unnecessary layers.
-* No dynamic memory allocation, except during setup/begin functions.
-* Use the same brace and indenting style that's in the core source modules. (A .clang-format is prob going to be added soon, but please do NOT retroactively re-format existing code. This just creates unnecessary diffs that make finding problems harder)
-
-## Road-Map / To-Do
-
-There are a number of fairly major features in the pipeline, with no particular time-frames attached yet. In very rough chronological order:
-- [X] Companion radio: UI redesign
-- [X] Repeater + Room Server: add ACL's (like Sensor Node has)
-- [X] Standardise Bridge mode for repeaters
-- [ ] Repeater/Bridge: Standardise the Transport Codes for zoning/filtering
-- [X] Core + Repeater: enhanced zero-hop neighbour discovery
-- [ ] Core: round-trip manual path support
-- [ ] Companion + Apps: support for multiple sub-meshes (and 'off-grid' client repeat mode)
-- [ ] Core + Apps: support for LZW message compression
-- [ ] Core: dynamic CR (Coding Rate) for weak vs strong hops
-- [ ] Core: new framework for hosting multiple virtual nodes on one physical device
-- [ ] V2 protocol spec: discussion and consensus around V2 packet protocol, including path hashes, new encryption specs, etc
-
-## 📞 Get Support
-
-- Report bugs and request features on the [GitHub Issues](https://github.com/ripplebiz/MeshCore/issues) page.
-- Find additional guides and components on [my site](https://buymeacoffee.com/ripplebiz).
-- Join [MeshCore Discord](https://discord.gg/BMwCtwHj5V) to chat with the developers and get help from the community.
+Debug:
+/usr/lib/raspberrypimc/companion/program  --freq 869618000 --sf 8 --bw 62500 --cr 8 --tx 22 --spi-bus 0 --spi-cs 0 --cs-pin 21 --spi-speed 1000000 --reset-pin 18 --busy-pin 20 --irq-pin 16 --txen-pin 13 --rxen-pin 12 --no-tcxo --no-dio2-rf
