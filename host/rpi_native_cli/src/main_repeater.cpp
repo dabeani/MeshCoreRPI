@@ -29,6 +29,7 @@ int main(int argc, char** argv) {
   uint8_t sf = 11;
   uint8_t cr = 5;
   int8_t tx_dbm = 22;
+  bool runtime_radio_override = false;
 
   int spi_bus = 0;
   int spi_cs = 0;
@@ -44,11 +45,26 @@ int main(int argc, char** argv) {
 
   for (int i = 1; i < argc; ++i) {
     const std::string a(argv[i]);
-    if (a == "--freq" && i + 1 < argc) freq_mhz = std::stof(argv[++i]) / 1000000.0f;
-    else if (a == "--sf" && i + 1 < argc) sf = static_cast<uint8_t>(std::stoi(argv[++i]));
-    else if (a == "--bw" && i + 1 < argc) bw_khz = std::stof(argv[++i]) / 1000.0f;
-    else if (a == "--cr" && i + 1 < argc) cr = static_cast<uint8_t>(std::stoi(argv[++i]));
-    else if (a == "--tx" && i + 1 < argc) tx_dbm = static_cast<int8_t>(std::stoi(argv[++i]));
+    if (a == "--freq" && i + 1 < argc) {
+      freq_mhz = std::stof(argv[++i]) / 1000000.0f;
+      runtime_radio_override = true;
+    }
+    else if (a == "--sf" && i + 1 < argc) {
+      sf = static_cast<uint8_t>(std::stoi(argv[++i]));
+      runtime_radio_override = true;
+    }
+    else if (a == "--bw" && i + 1 < argc) {
+      bw_khz = std::stof(argv[++i]) / 1000.0f;
+      runtime_radio_override = true;
+    }
+    else if (a == "--cr" && i + 1 < argc) {
+      cr = static_cast<uint8_t>(std::stoi(argv[++i]));
+      runtime_radio_override = true;
+    }
+    else if (a == "--tx" && i + 1 < argc) {
+      tx_dbm = static_cast<int8_t>(std::stoi(argv[++i]));
+      runtime_radio_override = true;
+    }
     else if (a == "--spi-bus" && i + 1 < argc) spi_bus = std::stoi(argv[++i]);
     else if (a == "--spi-cs" && i + 1 < argc) spi_cs = std::stoi(argv[++i]);
     else if (a == "--spi-speed" && i + 1 < argc) spi_speed_hz = std::stoi(argv[++i]);
@@ -96,6 +112,13 @@ int main(int argc, char** argv) {
     FILESYSTEM* fs = &LittleFS;
     sensors.begin();
     the_mesh.begin(fs);
+
+    // begin() loads persisted prefs and may reset radio params; re-apply
+    // explicit runtime CLI radio overrides after begin().
+    if (runtime_radio_override) {
+      radio_set_params(freq_mhz, bw_khz, sf, cr);
+      radio_set_tx_power(tx_dbm);
+    }
 
     std::thread cli([&]() {
       std::string line;
