@@ -95,6 +95,48 @@ sudo systemctl enable --now raspberrypimc-repeater.service
 sudo systemctl enable --now raspberrypimc-companion.service
 ```
 
+### 2b) Persistent autostart on boot (repeater only)
+
+If you only want the repeater to auto-start after reboot:
+
+```bash
+cd ~/MeshCoreRPI
+bash RaspberryPiMC/build_deb.sh repeater
+sudo dpkg -i RaspberryPiMC/dist/raspberrypimc-native-repeater_*.deb
+sudo nano /etc/raspberrypimc/repeater.env
+sudo systemctl enable --now raspberrypimc-repeater.service
+```
+
+Verify it is persistent:
+
+```bash
+systemctl is-enabled raspberrypimc-repeater.service
+systemctl status raspberrypimc-repeater.service --no-pager
+```
+
+Expected `is-enabled` output: `enabled`
+
+After changing `/etc/raspberrypimc/repeater.env`, apply changes with:
+
+```bash
+sudo systemctl restart raspberrypimc-repeater.service
+```
+
+Note:
+
+- Current native SX1262 Linux runtime uses sysfs GPIO export, which typically requires root privileges.
+- Package services are configured to run as root so GPIO/SPI access works reliably on Raspberry Pi.
+- If your existing installed unit still has `User=raspberrypimc`, rebuild/reinstall the latest `.deb` and restart the service.
+
+Quick check/fix for existing systemd unit on the Pi:
+
+```bash
+systemctl cat raspberrypimc-repeater.service | sed -n '1,120p'
+sudo systemctl daemon-reload
+sudo systemctl restart raspberrypimc-repeater.service
+sudo journalctl -u raspberrypimc-repeater.service -n 80 --no-pager
+```
+
 Check status/logs:
 
 ```bash

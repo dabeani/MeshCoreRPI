@@ -182,8 +182,6 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=raspberrypimc
-Group=raspberrypimc
 ExecStart=/usr/bin/raspberrypimc-${ROLE}
 Restart=always
 RestartSec=5
