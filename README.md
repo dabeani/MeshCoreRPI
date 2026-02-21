@@ -108,3 +108,5 @@ systemctl status raspberrypimc-companion.service --no-pager
 	--reset-pin 18 --busy-pin 20 --irq-pin 16 --txen-pin 13 --rxen-pin 12 \
 	--no-tcxo --no-dio2-rf
 ```
+
+Feel Free to Download / Modify / Distribute
