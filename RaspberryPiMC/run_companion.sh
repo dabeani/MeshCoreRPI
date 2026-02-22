@@ -24,6 +24,8 @@ set -a
 source "$ENV_FILE"
 set +a
 
+export RPI_CONFIG_FILE="${RPI_CONFIG_FILE:-$ENV_FILE}"
+
 DATA_DIR="${RPI_DATA_DIR:-/var/lib/raspberrypimc/userdata}"
 mkdir -p "$DATA_DIR" >/dev/null 2>&1 || true
 export MESHCORE_DATA_DIR="$DATA_DIR"
@@ -62,15 +64,26 @@ if [[ "${RPI_COMPANION_WEB_ENABLE:-1}" == "1" ]]; then
     echo "Missing companion web GUI script: $WEB_BRIDGE"
     exit 1
   fi
+
+  WEB_HOST="${RPI_COMPANION_WEB_HOST:-0.0.0.0}"
+  WEB_PORT="${RPI_COMPANION_WEB_PORT:-8080}"
+  COMP_TCP_HOST="${RPI_COMPANION_TCP_HOST:-127.0.0.1}"
+  COMP_TCP_PORT="${RPI_COMPANION_TCP_PORT:-5000}"
+
   python3 "$WEB_BRIDGE" \
     --role companion \
-    --companion-host "${RPI_COMPANION_TCP_HOST:-127.0.0.1}" \
-    --companion-port "${RPI_COMPANION_TCP_PORT:-5000}" \
-    --bind-host "${RPI_COMPANION_WEB_HOST:-0.0.0.0}" \
-    --bind-port "${RPI_COMPANION_WEB_PORT:-8080}" \
+    --companion-host "$COMP_TCP_HOST" \
+    --companion-port "$COMP_TCP_PORT" \
+    --bind-host "$WEB_HOST" \
+    --bind-port "$WEB_PORT" \
     >/tmp/meshcore-companion-web.log 2>&1 &
   WEB_PID="$!"
-  sleep 0.2
+  sleep 0.4
+  if ! kill -0 "$WEB_PID" >/dev/null 2>&1; then
+    echo "[run_companion] companion Web GUI failed to start. Log:"
+    cat /tmp/meshcore-companion-web.log || true
+    exit 1
+  fi
 fi
 
 if [[ -n "$BLE_PID" || -n "$WEB_PID" ]]; then

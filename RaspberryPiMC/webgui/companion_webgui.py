@@ -163,6 +163,7 @@ class MeshState:
             "queue": [],
             "rssi": [],
             "snr": [],
+            "noise_floor": [],
             "cpu": [],
             "mem": [],
         }
@@ -495,6 +496,23 @@ class CompanionClient:
                     self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_CORE]))
                     self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_RADIO]))
                     self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_PACKETS]))
+                    # Add periodic history sample for companion mode
+                    radio = self.state.stats.get("radio", {})
+                    packets = self.state.stats.get("packets", {})
+                    core = self.state.stats.get("core", {})
+                    if radio or packets or core:
+                        self.state.add_history_sample({
+                            "ts": int(time.time()),
+                            "rx": int(packets.get("recv", 0)),
+                            "tx": int(packets.get("sent", 0)),
+                            "drop": int(packets.get("recv_errors", 0)),
+                            "queue": int(core.get("queue_len", 0)),
+                            "rssi": float(radio.get("last_rssi", 0.0)),
+                            "snr": float(radio.get("last_snr", 0.0)),
+                            "noise_floor": float(radio.get("noise_floor", 0.0)),
+                            "cpu": 0.0,
+                            "mem": 0.0,
+                        })
                 if poll_counter % 200 == 0:
                     self.send_cmd(bytes([CMD_GET_CONTACTS]))
             time.sleep(0.25)
@@ -661,6 +679,7 @@ class RepeaterClient:
                 "queue": int(core.get("queue_len", 0)),
                 "rssi": float(radio.get("last_rssi", 0.0)),
                 "snr": float(radio.get("last_snr", 0.0)),
+                "noise_floor": float(radio.get("noise_floor", 0.0)),
                 "cpu": float(core.get("cpu_usage_pct", 0.0)),
                 "mem": float(core.get("mem_usage_pct", 0.0)),
             }
@@ -868,6 +887,36 @@ class App:
             self.client.send_cmd(bytes([CMD_SYNC_NEXT_MESSAGE]))
             return {"queued": True}
 
+        if name == "get_hardware_stats":
+            stats: dict[str, Any] = {}
+            try:
+                import psutil
+                stats["cpu_percent"] = psutil.cpu_percent(interval=0.2)
+                vm = psutil.virtual_memory()
+                stats["mem_percent"] = vm.percent
+                stats["mem_used_mb"] = vm.used // (1024 * 1024)
+                stats["mem_total_mb"] = vm.total // (1024 * 1024)
+                try:
+                    d = psutil.disk_usage("/")
+                    stats["disk_percent"] = d.percent
+                    stats["disk_used_gb"] = round(d.used / (1024 ** 3), 1)
+                    stats["disk_total_gb"] = round(d.total / (1024 ** 3), 1)
+                except Exception:
+                    pass
+                try:
+                    for t_key in ("cpu_thermal", "coretemp", "k10temp", "cpu-thermal"):
+                        temps = psutil.sensors_temperatures() or {}
+                        if t_key in temps and temps[t_key]:
+                            stats["cpu_temp"] = round(temps[t_key][0].current, 1)
+                            break
+                except Exception:
+                    pass
+            except ImportError:
+                core = self.state.stats.get("core", {})
+                stats["cpu_percent"] = float(core.get("cpu_usage_pct", 0.0))
+                stats["mem_percent"] = float(core.get("mem_usage_pct", 0.0))
+            return stats
+
         raise ValueError(f"unknown command: {name}")
 
     def _repeater_command(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -908,6 +957,11 @@ class App:
         if name == "clear_stats":
             reply = self.client.send_cli_command("clear stats")
             self.client.refresh(full=False)
+            return {"reply": reply}
+
+        if name == "reboot":
+            reply = self.client.send_cli_command("reboot")
+            self.state.add_event("reboot", {"reply": reply})
             return {"reply": reply}
 
         if name == "neighbor_remove":
@@ -1023,6 +1077,47 @@ class App:
         if name == "regions_denied":
             reply = self.client.send_cli_command("region list denied")
             return {"reply": reply}
+
+        if name == "set_mode":
+            mode = str(args.get("mode", "forward")).strip().lower()
+            if mode not in ("forward", "monitor"):
+                raise ValueError("mode must be 'forward' or 'monitor'")
+            value = "1" if mode == "forward" else "0"
+            reply = self.client.send_cli_command(f"set repeat {value}")
+            save_reply = self.client.send_cli_command("save")
+            self.state.add_event("mode_change", {"mode": mode, "reply": reply})
+            return {"mode": mode, "repeat": value, "reply": reply, "saved": save_reply}
+
+        if name == "get_hardware_stats":
+            stats: dict[str, Any] = {}
+            try:
+                import psutil
+                stats["cpu_percent"] = psutil.cpu_percent(interval=0.2)
+                vm = psutil.virtual_memory()
+                stats["mem_percent"] = vm.percent
+                stats["mem_used_mb"] = vm.used // (1024 * 1024)
+                stats["mem_total_mb"] = vm.total // (1024 * 1024)
+                try:
+                    d = psutil.disk_usage("/")
+                    stats["disk_percent"] = d.percent
+                    stats["disk_used_gb"] = round(d.used / (1024 ** 3), 1)
+                    stats["disk_total_gb"] = round(d.total / (1024 ** 3), 1)
+                except Exception:
+                    pass
+                try:
+                    for t_key in ("cpu_thermal", "coretemp", "k10temp", "cpu-thermal"):
+                        temps = psutil.sensors_temperatures() or {}
+                        if t_key in temps and temps[t_key]:
+                            stats["cpu_temp"] = round(temps[t_key][0].current, 1)
+                            break
+                except Exception:
+                    pass
+            except ImportError:
+                # Fallback: use what the repeater already reports
+                core = self.state.stats.get("core", {})
+                stats["cpu_percent"] = float(core.get("cpu_usage_pct", 0.0))
+                stats["mem_percent"] = float(core.get("mem_usage_pct", 0.0))
+            return stats
 
         if name == "get_logs":
             snapshot = self.state.snapshot()

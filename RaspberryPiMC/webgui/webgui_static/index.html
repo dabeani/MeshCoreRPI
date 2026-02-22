@@ -3,155 +3,293 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MeshCore Companion Web GUI</title>
+    <title>MeshCore Web GUI</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <!-- ─────────────── TOP BAR ─────────────── -->
     <header class="topbar">
-      <div>
-        <h1>MeshCore Web GUI</h1>
-        <p class="subtitle" id="role-subtitle">Companion / Repeater live dashboard</p>
+      <div class="topbar-brand">
+        <svg class="brand-logo" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="16,2 30,10 30,22 16,30 2,22 2,10" stroke="#58a6ff" stroke-width="2" fill="none"/>
+          <circle cx="16" cy="16" r="4" fill="#58a6ff"/>
+          <line x1="16" y1="2"  x2="16" y2="12" stroke="#58a6ff" stroke-width="1.5"/>
+          <line x1="16" y1="20" x2="16" y2="30" stroke="#58a6ff" stroke-width="1.5"/>
+          <line x1="2"  y1="10" x2="12" y2="14" stroke="#58a6ff" stroke-width="1.5"/>
+          <line x1="20" y1="18" x2="30" y2="22" stroke="#58a6ff" stroke-width="1.5"/>
+          <line x1="30" y1="10" x2="20" y2="14" stroke="#58a6ff" stroke-width="1.5"/>
+          <line x1="12" y1="18" x2="2"  y2="22" stroke="#58a6ff" stroke-width="1.5"/>
+        </svg>
+        <div><h1>MeshCore</h1><p id="role-subtitle" class="sub">Loading…</p></div>
       </div>
-      <div class="actions">
-        <button data-cmd="refresh">Refresh</button>
-        <button data-cmd="advert">Send Advert</button>
-        <button data-cmd="sync_time">Sync Time</button>
+      <nav class="tabs" id="tab-nav" role="tablist">
+        <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+        <button class="tab-btn" data-tab="charts">Charts</button>
+        <button class="tab-btn" data-tab="contacts">Contacts</button>
+        <button class="tab-btn" data-tab="config">Config</button>
+        <button class="tab-btn" data-tab="logs">Logs</button>
+      </nav>
+      <div class="topbar-right">
+        <span id="conn-badge" class="badge err" title="Connection status">–</span>
+        <button id="btn-advert">Advert</button>
+        <button id="btn-sync-time">Sync Time</button>
+        <button id="btn-refresh">Refresh</button>
       </div>
     </header>
 
-    <main class="layout">
-      <section class="panel stats">
-        <h2>Status</h2>
-        <div class="grid" id="status-grid"></div>
-      </section>
+    <!-- ─────────────── MAIN ─────────────── -->
+    <main id="main">
 
-      <section class="panel map-panel">
-        <h2>Network Map</h2>
-        <div id="map"></div>
-      </section>
+      <!-- ════════ DASHBOARD TAB ════════ -->
+      <section id="tab-dashboard" class="tab-pane active" role="tabpanel">
+        <div class="stat-grid" id="stat-grid"></div>
+        <div class="dash-body">
 
-      <section class="panel chart-panel">
-        <h2>Metrics</h2>
-        <canvas id="metrics-chart" height="160"></canvas>
-      </section>
+          <!-- Map (left) -->
+          <div class="dash-map-wrap panel">
+            <div class="panel-header">
+              <h2>Network Map</h2>
+              <div class="inline-actions">
+                <button id="btn-fit-map" class="btn-sm">Fit All</button>
+                <span id="map-count" class="muted-txt"></span>
+              </div>
+            </div>
+            <div id="map"></div>
+          </div>
 
-      <section class="panel control-panel">
-        <h2>Quick Actions</h2>
-        <form id="name-form" class="row-form">
-          <input name="name" placeholder="Set node name" maxlength="31" />
-          <button type="submit">Apply</button>
-        </form>
-        <form id="loc-form" class="row-form">
-          <input name="lat" placeholder="Latitude" type="number" step="0.000001" />
-          <input name="lon" placeholder="Longitude" type="number" step="0.000001" />
-          <button type="submit">Set Location</button>
-        </form>
-        <form id="pub-form" class="row-form">
-          <input name="msg" placeholder="Public channel message" maxlength="180" />
-          <button type="submit">Send</button>
-        </form>
-      </section>
+          <!-- Side panel (right) -->
+          <div class="dash-side">
+            <!-- Quick actions -->
+            <div class="panel mb-14">
+              <div class="panel-header"><h2>Quick Actions</h2></div>
+              <div class="inline-actions mb-8">
+                <button id="btn-mode-fwd" class="repeater-only btn-ok">&#9654; Forward</button>
+                <button id="btn-mode-mon" class="repeater-only btn-warn">&#9646;&#9646; Monitor</button>
+                <button id="btn-clear-stats">Clear Stats</button>
+              </div>
+              <form id="name-form" class="row-form mb-8">
+                <input name="name" placeholder="Set node name…" maxlength="31" />
+                <button type="submit">Set</button>
+              </form>
+              <form id="loc-form" class="row-form-3 mb-8">
+                <input name="lat" placeholder="Lat" type="number" step="0.000001" />
+                <input name="lon" placeholder="Lon" type="number" step="0.000001" />
+                <button type="submit">Set Location</button>
+              </form>
+              <form id="pub-form" class="row-form companion-only">
+                <input name="msg" placeholder="Public message…" maxlength="180" />
+                <button type="submit">Send</button>
+              </form>
+            </div>
 
-      <section class="panel contacts-panel">
-        <h2>Contacts</h2>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Pubkey</th>
-                <th>Location</th>
-                <th>Last Seen</th>
-              </tr>
-            </thead>
-            <tbody id="contacts-body"></tbody>
-          </table>
+            <!-- System / hardware stats -->
+            <div class="panel mb-14">
+              <div class="panel-header">
+                <h2>System</h2>
+                <button id="btn-hw-stats" class="btn-sm">Refresh</button>
+              </div>
+              <div class="stat-mini-grid">
+                <div class="stat-mini"><span class="lbl">CPU</span><span id="hw-cpu" class="val">–</span></div>
+                <div class="stat-mini"><span class="lbl">RAM</span><span id="hw-mem" class="val">–</span></div>
+                <div class="stat-mini"><span class="lbl">Disk</span><span id="hw-disk" class="val">–</span></div>
+                <div class="stat-mini"><span class="lbl">Temp</span><span id="hw-temp" class="val">–</span></div>
+              </div>
+            </div>
+
+            <!-- Recent events -->
+            <div class="panel events-outer">
+              <div class="panel-header">
+                <h2>Recent Events</h2>
+                <button id="btn-clear-events" class="btn-sm">Clear</button>
+              </div>
+              <ul id="events-list"></ul>
+            </div>
+          </div><!-- /dash-side -->
+
+        </div><!-- /dash-body -->
+      </section><!-- /dashboard -->
+
+
+      <!-- ════════ CHARTS TAB ════════ -->
+      <section id="tab-charts" class="tab-pane" role="tabpanel">
+        <div class="chart-grid">
+          <div class="panel chart-card">
+            <div class="panel-header"><h2>Packet Traffic</h2></div>
+            <canvas id="chart-traffic" height="160"></canvas>
+          </div>
+          <div class="panel chart-card">
+            <div class="panel-header"><h2>Radio Quality — RSSI &amp; SNR</h2></div>
+            <canvas id="chart-radio" height="160"></canvas>
+          </div>
+          <div class="panel chart-card chart-wide">
+            <div class="panel-header"><h2>Noise Floor &amp; Queue</h2></div>
+            <canvas id="chart-noise" height="140"></canvas>
+          </div>
         </div>
-      </section>
+      </section><!-- /charts -->
 
-      <section class="panel events-panel">
-        <h2>Recent Events</h2>
-        <ul id="events-list"></ul>
-      </section>
 
-      <section class="panel repeater-tools" id="repeater-tools" style="display:none;">
-        <h2>Repeater Tools</h2>
-        <div class="inline-actions">
-          <button id="load-config-btn" type="button">Load Config</button>
-          <button id="save-config-btn" type="button">Save Config</button>
-          <button id="refresh-regions-btn" type="button">Refresh Regions</button>
-          <button id="save-regions-btn" type="button">Save Regions</button>
+      <!-- ════════ CONTACTS TAB ════════ -->
+      <section id="tab-contacts" class="tab-pane" role="tabpanel">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Contacts &amp; Neighbors</h2>
+            <input id="contact-search" class="search-input" placeholder="Filter by name or key…" />
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th><th>Type</th><th>Public Key</th>
+                  <th>Location</th><th>SNR / Path</th>
+                  <th>Last Seen</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="contacts-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section><!-- /contacts -->
+
+
+      <!-- ════════ CONFIG TAB ════════ -->
+      <section id="tab-config" class="tab-pane" role="tabpanel">
+
+        <!-- Companion: minimal notice -->
+        <div class="companion-only panel mb-14">
+          <div class="panel-header"><h2>Device Settings</h2></div>
+          <p class="muted-txt pd-12">Use Quick Actions on the Dashboard to set node name and location.</p>
         </div>
 
-        <h3>Configuration</h3>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Key</th>
-                <th>Current</th>
-                <th>New Value</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="config-rows"></tbody>
-          </table>
+        <!-- Repeater: full config management -->
+        <div class="repeater-only">
+          <div class="cfg-layout">
+
+            <!-- Parameters table -->
+            <div class="panel cfg-left">
+              <div class="panel-header">
+                <h2>MeshCore Parameters</h2>
+                <div class="inline-actions">
+                  <button id="load-config-btn">↓ Load</button>
+                  <button id="save-config-btn" class="btn-ok">✓ Save to Device</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Key</th><th>Current</th><th>New Value</th><th></th></tr></thead>
+                  <tbody id="config-rows"></tbody>
+                </table>
+              </div>
+              <form id="config-set-form" class="row-form-3 mt-8">
+                <input name="key"   placeholder="Key (eg: txdelay)" />
+                <input name="value" placeholder="Value" />
+                <button type="submit">Set</button>
+              </form>
+              <div id="config-output" class="mono-box mt-8"></div>
+            </div>
+
+            <!-- Region management -->
+            <div class="panel cfg-right">
+              <div class="panel-header">
+                <h2>Region Management</h2>
+                <div class="inline-actions">
+                  <button id="refresh-regions-btn">↻ Refresh</button>
+                  <button id="save-regions-btn" class="btn-ok">✓ Save</button>
+                </div>
+              </div>
+              <h3 class="form-title">Home Region</h3>
+              <form id="region-home-form" class="row-form mb-8">
+                <input name="name" placeholder="eg: #Europe" />
+                <button type="submit">Set Home</button>
+              </form>
+              <h3 class="form-title">Create / Remove</h3>
+              <form id="region-put-form" class="row-form-3 mb-8">
+                <input name="name"   placeholder="Region name" />
+                <input name="parent" placeholder="Parent (optional)" />
+                <button type="submit">Create</button>
+              </form>
+              <form id="region-remove-form" class="row-form mb-8">
+                <input name="name" placeholder="Region to remove" />
+                <button type="submit">Remove</button>
+              </form>
+              <h3 class="form-title">Flood Policy</h3>
+              <form id="region-flag-form" class="row-form-3 mb-8">
+                <select name="mode">
+                  <option value="allowf">Allow Flood</option>
+                  <option value="denyf">Deny Flood</option>
+                </select>
+                <input name="name" placeholder="Region name" />
+                <button type="submit">Apply</button>
+              </form>
+              <h3 class="form-title">Inspect / Load</h3>
+              <form id="region-get-form" class="row-form mb-8">
+                <input name="name" placeholder="Inspect region" />
+                <button type="submit">Get</button>
+              </form>
+              <form id="region-load-form" class="row-form-3 mb-8">
+                <input name="name" placeholder="Load named region" />
+                <label class="flag-checkbox"><input type="checkbox" name="flood" /> Flood</label>
+                <button type="submit">Load</button>
+              </form>
+              <div id="region-output" class="mono-box mt-8"></div>
+            </div>
+
+          </div><!-- /cfg-layout -->
+
+          <!-- CLI terminal -->
+          <div class="panel mt-14">
+            <div class="panel-header">
+              <h2>CLI Terminal</h2>
+              <div class="inline-actions">
+                <button id="btn-reboot" class="btn-err">⚡ Reboot Node</button>
+              </div>
+            </div>
+            <form id="raw-form" class="row-form">
+              <input name="cmd" class="cli-input" 
+                     placeholder="CLI command… (eg: radio-diag, ver, neighbors, stats-core)" />
+              <button type="submit">Run</button>
+            </form>
+            <div id="raw-output" class="mono-box cli-output mt-8"></div>
+          </div>
+
+          <!-- Neighbor remove -->
+          <div class="panel mt-14">
+            <div class="panel-header"><h2>Remove Neighbor</h2></div>
+            <form id="neighbor-form" class="row-form">
+              <input name="pubkey_prefix" placeholder="Neighbor pubkey prefix (hex)" />
+              <button type="submit">Remove</button>
+            </form>
+          </div>
+
+        </div><!-- /repeater-only -->
+      </section><!-- /config -->
+
+
+      <!-- ════════ LOGS TAB ════════ -->
+      <section id="tab-logs" class="tab-pane" role="tabpanel">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Event Log</h2>
+            <div class="inline-actions">
+              <input id="log-filter" class="search-input" placeholder="Filter events…" />
+              <button id="btn-clear-log">Clear</button>
+            </div>
+          </div>
+          <div class="log-container">
+            <table class="log-table">
+              <thead><tr>
+                <th style="width:130px">Time</th>
+                <th style="width:130px">Type</th>
+                <th>Details</th>
+              </tr></thead>
+              <tbody id="log-body"></tbody>
+            </table>
+          </div>
         </div>
+      </section><!-- /logs -->
 
-        <form id="config-set-form" class="row-form row-form-3">
-          <input name="key" placeholder="Config key (eg: txdelay)" />
-          <input name="value" placeholder="Value" />
-          <button type="submit">Set Key</button>
-        </form>
-
-        <h3>Regions (MeshCore Native)</h3>
-        <form id="region-home-form" class="row-form">
-          <input name="name" placeholder="Home region (eg: #Europe)" />
-          <button type="submit">Set Home</button>
-        </form>
-        <form id="region-put-form" class="row-form row-form-3">
-          <input name="name" placeholder="Region name" />
-          <input name="parent" placeholder="Parent region (optional)" />
-          <button type="submit">Create Region</button>
-        </form>
-        <form id="region-remove-form" class="row-form">
-          <input name="name" placeholder="Region to remove" />
-          <button type="submit">Remove Region</button>
-        </form>
-        <form id="region-flag-form" class="row-form row-form-4">
-          <select name="mode">
-            <option value="allowf">Allow Flood</option>
-            <option value="denyf">Deny Flood</option>
-          </select>
-          <input name="name" placeholder="Region name" />
-          <button type="submit">Apply Flag</button>
-        </form>
-        <form id="region-get-form" class="row-form">
-          <input name="name" placeholder="Region to inspect" />
-          <button type="submit">Get Region</button>
-        </form>
-        <form id="region-load-form" class="row-form row-form-4">
-          <input name="name" placeholder="Load named region" />
-          <label class="flag-checkbox"><input type="checkbox" name="flood" /> Flood (F)</label>
-          <button type="submit">Load Named Region</button>
-        </form>
-
-        <div id="config-output" class="mono-box"></div>
-        <div id="region-output" class="mono-box"></div>
-
-        <form id="neighbor-form" class="row-form">
-          <input name="pubkey_prefix" placeholder="Neighbor pubkey prefix (hex)" />
-          <button type="submit">Remove Neighbor</button>
-        </form>
-        <form id="raw-form" class="row-form">
-          <input name="cmd" placeholder="Run raw CLI command (eg: radio-diag)" />
-          <button type="submit">Run</button>
-        </form>
-        <div id="raw-output" class="mono-box"></div>
-      </section>
-    </main>
+    </main><!-- /main -->
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="/app.js"></script>
