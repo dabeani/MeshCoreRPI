@@ -18,6 +18,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 CMD_APP_START = 1
+CMD_SEND_TXT_MSG = 2
 CMD_SEND_CHANNEL_TXT_MSG = 3
 CMD_GET_CONTACTS = 4
 CMD_SET_DEVICE_TIME = 6
@@ -1101,6 +1102,41 @@ class App:
             self.state.add_event("chan_msg_sent", {"channel": ch_name, "text": text.decode("utf-8", errors="replace")[:60]})
             self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             return {"channel": channel, "bytes": len(text)}
+
+        if name == "send_direct_msg":
+            pubkey_hex = str(args.get("pubkey", "")).strip().lower()
+            text_raw = str(args.get("text", "")).encode("utf-8")[:180]
+            if len(pubkey_hex) < 12:
+                raise ValueError("pubkey too short")
+            pubkey_bytes = bytes.fromhex(pubkey_hex[:12])  # first 6 bytes
+            ts = int(time.time())
+            msg_id = f"dm_{ts}_{pubkey_hex[:12]}_{len(self.client._pending_ack_ids)}"
+            cmd_payload = bytes([CMD_SEND_TXT_MSG, 0, 0]) + struct.pack("<I", ts) + pubkey_bytes + text_raw
+            self.client.send_cmd(cmd_payload)
+            contact = self.state.contacts.get(pubkey_hex) or next(
+                (c for k, c in self.state.contacts.items() if k.startswith(pubkey_hex[:12])), None
+            )
+            contact_name = contact.name if contact else pubkey_hex[:12]
+            out_msg = {
+                "msg_type": "contact",
+                "sender": "You",
+                "pubkey_prefix": pubkey_hex[:12],
+                "path_len": -1,
+                "hop_str": "Sent",
+                "txt_type": 0,
+                "ts": ts,
+                "text": text_raw.decode("utf-8", errors="replace"),
+                "snr": None,
+                "outbound": True,
+                "status": "pending",
+                "msg_id": msg_id,
+            }
+            with self.state._lock:
+                self.state.messages.append(out_msg)
+                self.client._pending_ack_ids.append(msg_id)
+            self.state.add_event("dm_sent", {"recipient": contact_name, "text": text_raw.decode("utf-8", errors="replace")[:60]})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+            return {"pubkey_prefix": pubkey_hex[:12], "bytes": len(text_raw)}
 
         if name == "get_channels":
             for idx in range(8):

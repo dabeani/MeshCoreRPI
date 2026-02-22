@@ -29,6 +29,7 @@
         <button class="tab-btn" data-tab="contacts">Contacts</button>
         <button class="tab-btn" data-tab="config">Config</button>
         <button class="tab-btn" data-tab="logs">Logs</button>
+        <button class="tab-btn companion-only" data-tab="messages" id="tab-btn-messages">Messages <span class="ch-unread-badge" id="dm-tab-badge" style="display:none">0</span></button>
         <button class="tab-btn companion-only" data-tab="channels" id="tab-btn-channels">Channels <span class="ch-unread-badge" id="ch-tab-badge" style="display:none">0</span></button>
       </nav>
       <div class="topbar-right">
@@ -362,6 +363,37 @@
           </div>
         </div>
       </section><!-- /logs -->
+
+      <!-- ════════ MESSAGES TAB (companion-only) ════════ -->
+      <section id="tab-messages" class="tab-pane companion-only" role="tabpanel">
+        <div class="ch-layout">
+
+          <!-- Sidebar: contact list -->
+          <div class="ch-sidebar panel">
+            <div class="panel-header">
+              <h2>&#128172; Direct Messages</h2>
+            </div>
+            <div class="dm-search-wrap">
+              <input id="dm-search" class="dm-search" placeholder="&#128269; Search contacts\u2026" autocomplete="off" />
+            </div>
+            <ul id="dm-contact-list" class="ch-list"></ul>
+          </div>
+
+          <!-- Chat area -->
+          <div class="ch-chat panel">
+            <div class="panel-header">
+              <h2 id="dm-title">Select a contact</h2>
+              <span id="dm-subtitle" class="muted-txt"></span>
+            </div>
+            <div id="dm-messages" class="ch-messages-area"></div>
+            <form id="dm-send-form" class="ch-send-form">
+              <input id="dm-input" name="text" placeholder="Type a message\u2026 (max 180 chars)" maxlength="180" autocomplete="off" />
+              <button type="submit" class="btn-ok">Send &#8593;</button>
+            </form>
+          </div>
+
+        </div>
+      </section><!-- /messages -->
 
       <!-- ════════ CHANNELS TAB (companion-only) ════════ -->
       <section id="tab-channels" class="tab-pane companion-only" role="tabpanel">

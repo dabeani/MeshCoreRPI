@@ -499,6 +499,21 @@ body[data-role="repeater"]  .repeater-only.panel { display: block; }
 .ch-send-form input:focus { outline: none; border-color: var(--accent); }
 .ch-send-form button { flex-shrink: 0; }
 
+/* ─── DM (Messages tab) ─── */
+.dm-search-wrap {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border2);
+  flex-shrink: 0;
+}
+.dm-search {
+  width: 100%; box-sizing: border-box;
+  background: rgba(255,255,255,.06); border: 1px solid var(--border2);
+  border-radius: 6px; padding: 5px 10px;
+  color: var(--text); font-size: 12px;
+}
+.dm-search:focus { outline: none; border-color: var(--accent); }
+.dm-contact-kind { font-size: 10px; color: var(--muted); }
+
 /* ─────────────── Region manager ─────────────── */
 .region-home-bar {
   display: flex; align-items: center; gap: 8px;

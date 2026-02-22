@@ -18,6 +18,12 @@ const app = {
   chMsgCounts: {},           // channel_idx -> last rendered message count
   chScrollPos: {},           // channel_idx -> last saved scrollTop when visible
   chEverViewed: {},          // channel_idx -> bool: has user ever opened this channel
+  // DM (Messages tab)
+  activeDmContact: null,     // full pubkey hex of selected contact
+  unreadDms: new Set(),      // pubkey_prefixes (12 hex chars) with unread messages
+  dmMsgCounts: {},           // pubkey_prefix -> last rendered DM count
+  dmScrollPos: {},           // pubkey_prefix -> last saved scrollTop
+  dmEverViewed: {},          // pubkey_prefix -> bool
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
@@ -116,6 +122,11 @@ function switchTab(tabName) {
   }
   if (tabName === 'logs' && app.snap) {
     renderLog(app.snap.events || [], document.getElementById('log-filter')?.value || '');
+  }
+  if (tabName === 'messages' && app.snap) {
+    app.unreadDms.clear();
+    updateDmBadge();
+    renderMessages(app.snap);
   }
   if (tabName === 'channels' && app.snap) {
     app.unreadChannels.clear();
@@ -650,6 +661,14 @@ function renderLog(events, filter = '') {
 }
 
 // ─── Channels ────────────────────────────────────────
+function updateDmBadge() {
+  const badge = document.getElementById('dm-tab-badge');
+  if (!badge) return;
+  const count = app.unreadDms.size;
+  badge.style.display = count ? '' : 'none';
+  badge.textContent   = count;
+}
+
 function updateChannelBadge() {
   const badge = document.getElementById('ch-tab-badge');
   if (!badge) return;
@@ -664,6 +683,127 @@ function fmtMsgTime(ts) {
   const h = d.getHours().toString().padStart(2,'0');
   const m = d.getMinutes().toString().padStart(2,'0');
   return `${h}:${m}`;
+}
+
+// ─── Messages (DM) Tab ───────────────────────────────
+function renderMessages(snap) {
+  const contacts = snap.contacts || [];
+  const messages = snap.messages || [];
+  const listEl    = document.getElementById('dm-contact-list');
+  const msgArea   = document.getElementById('dm-messages');
+  const titleEl   = document.getElementById('dm-title');
+  const subtitleEl = document.getElementById('dm-subtitle');
+  if (!listEl || !msgArea) return;
+
+  const query = (document.getElementById('dm-search')?.value || '').toLowerCase().trim();
+
+  // All direct messages (inbound from contacts + outbound we sent)
+  const dmMessages = messages.filter(m => m.msg_type === 'contact');
+
+  // Most-recent DM timestamp per pubkey_prefix (12-hex = 6 bytes)
+  const lastTs = {};
+  dmMessages.forEach(m => {
+    if (!lastTs[m.pubkey_prefix] || m.ts > lastTs[m.pubkey_prefix]) lastTs[m.pubkey_prefix] = m.ts;
+  });
+
+  // Filter + sort contacts
+  let filtered = contacts.filter(c => {
+    if (!query) return true;
+    return c.name.toLowerCase().includes(query) || c.pubkey.includes(query);
+  });
+  filtered.sort((a, b) => {
+    const ta = lastTs[a.pubkey.slice(0, 12)] || a.lastmod || 0;
+    const tb = lastTs[b.pubkey.slice(0, 12)] || b.lastmod || 0;
+    return tb - ta;
+  });
+
+  // Render sidebar
+  listEl.innerHTML = filtered.length === 0
+    ? '<li style="padding:16px;text-align:center;color:var(--muted);font-size:12px">No contacts found</li>'
+    : filtered.map(c => {
+        const prefix   = c.pubkey.slice(0, 12);
+        const isActive = c.pubkey === app.activeDmContact;
+        const unread   = app.unreadDms.has(prefix);
+        const cMsgs    = dmMessages.filter(m => m.pubkey_prefix === prefix);
+        const last     = cMsgs[cMsgs.length - 1];
+        const lastText = last ? last.text.slice(0, 30) + (last.text.length > 30 ? '\u2026' : '') : 'No messages yet';
+        const initial  = (c.name || '?')[0].toUpperCase();
+        return `<li class="ch-list-item${isActive ? ' active' : ''}" data-pubkey="${_esc(c.pubkey)}" data-prefix="${_esc(prefix)}">
+          <div class="ch-item-icon" style="font-size:14px;font-weight:700">${initial}</div>
+          <div class="ch-item-info">
+            <div class="ch-item-name">${_esc(c.name)}</div>
+            <div class="ch-item-sub">${_esc(lastText)}</div>
+          </div>
+          ${unread ? `<div class="ch-item-badge">\u25cf</div>` : ''}
+        </li>`;
+      }).join('');
+
+  // No contact selected
+  if (!app.activeDmContact) {
+    if (titleEl)    titleEl.textContent = 'Select a contact';
+    if (subtitleEl) subtitleEl.textContent = '';
+    msgArea.innerHTML = `<div class="ch-empty"><div class="ch-empty-icon">&#128172;</div>Select a contact on the left<br><small>to start a direct message conversation.</small></div>`;
+    return;
+  }
+
+  const activeContact = contacts.find(c => c.pubkey === app.activeDmContact);
+  const contactName   = activeContact?.name || app.activeDmContact.slice(0, 12);
+  const prefix        = app.activeDmContact.slice(0, 12);
+  if (titleEl)    titleEl.textContent = contactName;
+  if (subtitleEl) subtitleEl.textContent = activeContact ? contactKindStr(activeContact.kind, snap.role) : '';
+
+  const convoMsgs = dmMessages.filter(m => m.pubkey_prefix === prefix);
+
+  if (!convoMsgs.length) {
+    msgArea.innerHTML = `<div class="ch-empty"><div class="ch-empty-icon">&#128172;</div>No messages yet with ${_esc(contactName)}.<br><small>Send the first message below.</small></div>`;
+    app.dmMsgCounts[prefix] = 0;
+    return;
+  }
+
+  const prevCount  = app.dmMsgCounts[prefix] ?? -1;
+  const gotNewMsgs = convoMsgs.length > prevCount;
+  const isVisible  = msgArea.offsetHeight > 0;
+
+  let wasAtBottom = false;
+  if (isVisible) {
+    const scrollable = Math.max(msgArea.scrollHeight - msgArea.clientHeight, 0);
+    wasAtBottom = msgArea.scrollTop >= scrollable - 20;
+    app.dmScrollPos[prefix] = msgArea.scrollTop;
+  }
+
+  msgArea.innerHTML = convoMsgs.map(m => {
+    const dir       = m.outbound ? 'outbound' : 'inbound';
+    const snrStr    = m.snr  != null ? `SNR ${m.snr} dB` : '';
+    const hopStr    = m.path_len === 0 ? 'Direct' : m.path_len > 0 ? `${m.path_len} hop${m.path_len !== 1 ? 's' : ''}` : '';
+    const metaParts = [m.outbound ? 'You' : '', fmtMsgTime(m.ts)].filter(Boolean);
+    const footerParts = [hopStr, snrStr].filter(Boolean);
+    let statusHtml = '';
+    if (m.outbound) {
+      if      (m.status === 'pending') statusHtml = '<span class="ch-status pending">&#9201; Sending\u2026</span>';
+      else if (m.status === 'sent')    statusHtml = '<span class="ch-status sent">&#10003; Delivered</span>';
+      else if (m.status === 'failed')  statusHtml = '<span class="ch-status failed">&#9888; Failed</span>';
+    }
+    return `<div class="ch-bubble ${dir}">
+      <div class="ch-bubble-meta">
+        ${!m.outbound ? `<span class="ch-bubble-sender">${_esc(contactName)}</span>` : ''}
+        <span>${metaParts.join(' \u00b7 ')}</span>
+      </div>
+      <div class="ch-bubble-text">${_esc(m.text)}</div>
+      ${(footerParts.length || statusHtml) ? `<div class="ch-bubble-footer">${footerParts.join(' \u00b7 ')}${statusHtml}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  app.dmMsgCounts[prefix] = convoMsgs.length;
+
+  if (isVisible) {
+    const firstView = !app.dmEverViewed[prefix];
+    app.dmEverViewed[prefix] = true;
+    if (firstView || (gotNewMsgs && wasAtBottom)) {
+      msgArea.scrollTop = msgArea.scrollHeight;
+    } else {
+      msgArea.scrollTop = app.dmScrollPos[prefix] ?? 0;
+    }
+  }
 }
 
 function renderChannels(snap) {
@@ -1019,6 +1159,7 @@ function renderAll(snap) {
   if (app.activeTab === 'contacts') renderContacts(snap, document.getElementById('contact-search')?.value || '');
   if (app.activeTab === 'logs')     renderLog(snap.events || [], document.getElementById('log-filter')?.value || '');
   if (app.activeTab === 'channels') renderChannels(snap);
+  if (app.activeTab === 'messages') renderMessages(snap);
 
   // Region tree: sync from pushed state when on config tab
   if (app.activeTab === 'config' && snap.regions?.length) {
@@ -1037,9 +1178,13 @@ function renderAll(snap) {
       if (m.msg_type === 'channel' && !m.outbound && app.activeTab !== 'channels') {
         app.unreadChannels.add(m.channel_idx);
       }
+      if (m.msg_type === 'contact' && !m.outbound && app.activeTab !== 'messages') {
+        app.unreadDms.add(m.pubkey_prefix);
+      }
     });
     app.lastMsgCount = msgs.length;
     updateChannelBadge();
+    updateDmBadge();
   }
 }
 
@@ -1328,6 +1473,36 @@ function wireUi() {
   document.getElementById('btn-sync-time-cfg')?.addEventListener('click', async () => {
     const d = await sendCommand('sync_time');
     setOutput('companion-cfg-output', d?.ok ? `✓ Time synced: ${new Date().toLocaleString()}` : `Error: ${d?.error}`);
+  });
+
+  // ── Messages (DM) tab ─────────────────────────────────
+  // Contact list click (delegated)
+  document.getElementById('dm-contact-list')?.addEventListener('click', e => {
+    const item = e.target.closest('[data-pubkey]');
+    if (!item) return;
+    app.activeDmContact = item.dataset.pubkey;
+    app.unreadDms.delete(item.dataset.prefix);
+    updateDmBadge();
+    if (app.snap) renderMessages(app.snap);
+  });
+
+  // Contact search
+  document.getElementById('dm-search')?.addEventListener('input', () => {
+    if (app.snap) renderMessages(app.snap);
+  });
+
+  // DM send form
+  document.getElementById('dm-send-form')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!app.activeDmContact) return;
+    const input = document.getElementById('dm-input');
+    const text  = input?.value.trim();
+    if (!text) return;
+    input.value    = '';
+    input.disabled = true;
+    await sendCommand('send_direct_msg', { pubkey: app.activeDmContact, text });
+    input.disabled = false;
+    input.focus();
   });
 
   // ── Channels tab ────────────────────────────────────
