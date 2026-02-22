@@ -10,6 +10,8 @@
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
+#include <cctype>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -29,6 +31,56 @@ static void sig_handler(int) {
 }
 
 namespace {
+
+std::string trim(std::string value) {
+  size_t start = 0;
+  while (start < value.size() && std::isspace(static_cast<unsigned char>(value[start])) != 0) {
+    ++start;
+  }
+  size_t end = value.size();
+  while (end > start && std::isspace(static_cast<unsigned char>(value[end - 1])) != 0) {
+    --end;
+  }
+  return value.substr(start, end - start);
+}
+
+void loadEnvFileDefaults(const char* path) {
+  std::ifstream file(path);
+  if (!file.is_open()) return;
+
+  std::string line;
+  while (std::getline(file, line)) {
+    const std::string t = trim(line);
+    if (t.empty() || t[0] == '#') continue;
+
+    const size_t eq = t.find('=');
+    if (eq == std::string::npos || eq == 0) continue;
+
+    const std::string key = trim(t.substr(0, eq));
+    std::string value = trim(t.substr(eq + 1));
+    if (key.empty()) continue;
+
+    if (value.size() >= 2 &&
+        ((value.front() == '"' && value.back() == '"') ||
+         (value.front() == '\'' && value.back() == '\''))) {
+      value = value.substr(1, value.size() - 2);
+    }
+
+    const char* current = std::getenv(key.c_str());
+    if (current == nullptr || current[0] == '\0') {
+      setenv(key.c_str(), value.c_str(), 0);
+    }
+  }
+}
+
+void preloadRoleConfigEnv() {
+  const char* override = std::getenv("RPI_CONFIG_FILE");
+  if (override && override[0] != '\0') {
+    loadEnvFileDefaults(override);
+    return;
+  }
+  loadEnvFileDefaults("/etc/raspberrypimc/repeater.env");
+}
 
 bool hasEnv(const char* name) {
   const char* v = std::getenv(name);
@@ -60,6 +112,8 @@ bool envEnabled(const char* name, bool fallback) {
 }
 
 int main(int argc, char** argv) {
+  preloadRoleConfigEnv();
+
   const bool env_radio_override =
     hasEnv("RPI_FREQ_HZ") || hasEnv("RPI_SF") || hasEnv("RPI_BW_HZ") || hasEnv("RPI_CR") || hasEnv("RPI_TX_DBM");
 
