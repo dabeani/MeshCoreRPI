@@ -63,7 +63,9 @@ function setOutput(id, text) {
 
 function contactKindStr(kind, role) {
   if (role === 'repeater') return 'Neighbor';
-  return ['Companion', 'Room Server', 'Repeater', 'Sensor'][kind] || `Type ${kind}`;
+  // ADV_TYPE_NONE=0, ADV_TYPE_CHAT=1 (client), ADV_TYPE_REPEATER=2, ADV_TYPE_ROOM=3, ADV_TYPE_SENSOR=4
+  const types = ['Unknown', 'Client', 'Repeater', 'Room Server', 'Sensor'];
+  return types[kind] ?? `Type ${kind}`;
 }
 
 // ─── API ─────────────────────────────────────────────
@@ -91,7 +93,7 @@ function switchTab(tabName) {
     setTimeout(() => mcMap.invalidateSize(), 60);
   }
   if (tabName === 'charts' && app.snap) {
-    setTimeout(() => renderCharts(app.snap), 60);
+    setTimeout(() => renderCharts(app.snap), 150);
   }
   if (tabName === 'contacts' && app.snap) {
     renderContacts(app.snap, document.getElementById('contact-search')?.value || '');
@@ -223,8 +225,9 @@ function updateMap(snap) {
 function drawChart(canvas, ts, series) {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  const W = canvas.offsetWidth  || canvas.parentElement?.clientWidth  || 600;
-  const H = canvas.offsetHeight || 160;
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width  > 4 ? rect.width  : (canvas.parentElement?.clientWidth  || 600);
+  const H = rect.height > 4 ? rect.height : 180;
   const dpr = window.devicePixelRatio || 1;
   canvas.width  = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
@@ -383,10 +386,14 @@ function renderContacts(snap, filter = '') {
   }
   tbody.innerHTML = contacts.slice(0, 250).map(c => {
     const loc     = hasLoc(c) ? `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}` : '–';
+    const hops    = c.out_path_len;
     const snrPath = role === 'companion'
-      ? (c.out_path_len >= 0 ? `${c.out_path_len} hop${c.out_path_len !== 1 ? 's' : ''}` : 'direct')
+      ? (hops === 0 ? 'direct' : (hops > 0 && hops < 255) ? `${hops} hop${hops !== 1 ? 's' : ''}` : '–')
       : '–';
     const kind = contactKindStr(c.kind, role);
+    const locateBtn = hasLoc(c)
+      ? `<button class="btn-sm" onclick="locateContact(${c.lat.toFixed(6)},${c.lon.toFixed(6)})">Locate</button>`
+      : '';
     const removeBtn = role === 'repeater'
       ? `<button class="btn-sm btn-err" onclick="removeNeighbor('${c.pubkey.slice(0, 16)}')">Remove</button>`
       : '';
@@ -397,7 +404,7 @@ function renderContacts(snap, filter = '') {
       <td>${loc}</td>
       <td>${snrPath}</td>
       <td>${fmtTime(c.last_advert_timestamp)}</td>
-      <td>${removeBtn}</td>
+      <td style="white-space:nowrap">${locateBtn}${removeBtn ? ' ' + removeBtn : ''}</td>
     </tr>`;
   }).join('');
 }
@@ -406,6 +413,23 @@ async function removeNeighbor(prefix) {
   if (!confirm(`Remove neighbor ${prefix}?`)) return;
   const d = await sendCommand('neighbor_remove', { pubkey_prefix: prefix });
   alert(d?.payload?.reply || JSON.stringify(d?.payload) || 'Done');
+}
+
+function locateContact(lat, lon) {
+  switchTab('dashboard');
+  setTimeout(() => mcMap.setView([lat, lon], 14), 100);
+}
+
+// ─── System Charts (dashboard) ───────────────────────
+function renderSystemCharts(snap) {
+  const h  = snap?.history || {};
+  const ts = h.ts || [];
+  drawChart(document.getElementById('sys-chart-cpu'), ts, [
+    { label: 'CPU %', data: h.cpu, color: '#38bdf8', fill: true },
+  ]);
+  drawChart(document.getElementById('sys-chart-mem'), ts, [
+    { label: 'RAM %', data: h.mem, color: '#a78bfa', fill: true },
+  ]);
 }
 
 // ─── Events List ─────────────────────────────────────
@@ -547,6 +571,24 @@ function renderAll(snap) {
 
   // Map (always update, even when on another tab — markers are fast)
   updateMap(snap);
+
+  // System charts (dashboard side panel — CPU/RAM over time)
+  renderSystemCharts(snap);
+
+  // Companion device info panel (config tab)
+  const infoEl = document.getElementById('companion-device-info');
+  if (infoEl) {
+    const si = snap.self_info  || {};
+    const di = snap.device_info || {};
+    infoEl.textContent = [
+      `Name     : ${si.name    || '–'}`,
+      `Pubkey   : ${si.pubkey  ? si.pubkey.slice(0, 24) + '…' : '–'}`,
+      `Model    : ${di.model   || '–'}`,
+      `Firmware : ${di.version || '–'}`,
+      `Freq     : ${si.radio_freq_khz  ? (si.radio_freq_khz / 1000).toFixed(3) + ' MHz' : '–'}`,
+      `TX Power : ${si.tx_power_db != null ? si.tx_power_db + ' dB' : '–'}`,
+    ].join('\n');
+  }
 
   // Events sidebar
   renderEvents(snap.events || []);
@@ -757,6 +799,38 @@ function wireUi() {
     alert(d?.payload?.reply || JSON.stringify(d?.payload));
     e.target.reset();
   });
+
+  // ── Companion Config tab forms ──────────────────────
+  document.getElementById('cfg-name-form')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = new FormData(e.target).get('name')?.trim();
+    if (!name) return;
+    const d = await sendCommand('set_name', { name });
+    setOutput('companion-cfg-output', d?.ok ? `✓ Name set: ${name}` : `Error: ${d?.error}`);
+    e.target.reset();
+  });
+
+  document.getElementById('cfg-loc-form')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const lat = parseFloat(fd.get('lat')), lon = parseFloat(fd.get('lon'));
+    if (!isFinite(lat) || !isFinite(lon)) {
+      setOutput('companion-cfg-output', 'Invalid coordinates'); return;
+    }
+    const d = await sendCommand('set_location', { lat, lon });
+    setOutput('companion-cfg-output', d?.ok ? `✓ Location set: ${lat.toFixed(6)}, ${lon.toFixed(6)}` : `Error: ${d?.error}`);
+    e.target.reset();
+  });
+
+  document.getElementById('btn-advert-cfg')?.addEventListener('click', async () => {
+    const d = await sendCommand('advert');
+    setOutput('companion-cfg-output', d?.ok ? '✓ Advert sent' : `Error: ${d?.error}`);
+  });
+
+  document.getElementById('btn-sync-time-cfg')?.addEventListener('click', async () => {
+    const d = await sendCommand('sync_time');
+    setOutput('companion-cfg-output', d?.ok ? `✓ Time synced: ${new Date().toLocaleString()}` : `Error: ${d?.error}`);
+  });
 }
 
 // ─── SSE Connection ──────────────────────────────────
@@ -782,5 +856,11 @@ function connectSSE() {
   } catch (e) {
     console.log('Initial state fetch failed, waiting for SSE');
   }
+
+  // Periodic HW stats refresh (every 30s)
+  setInterval(() => {
+    sendCommand('get_hardware_stats').then(d => { if (d?.ok && d.payload) updateHwStats(d.payload); });
+  }, 30000);
+
   connectSSE();
 })();

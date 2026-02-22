@@ -46,17 +46,27 @@
         <div class="stat-grid" id="stat-grid"></div>
         <div class="dash-body">
 
-          <!-- Map (left) -->
-          <div class="dash-map-wrap panel">
-            <div class="panel-header">
-              <h2>Network Map</h2>
-              <div class="inline-actions">
-                <button id="btn-fit-map" class="btn-sm">Fit All</button>
-                <span id="map-count" class="muted-txt"></span>
+          <!-- Left column: map + events -->
+          <div class="dash-left-col">
+            <div class="dash-map-wrap panel">
+              <div class="panel-header">
+                <h2>Network Map</h2>
+                <div class="inline-actions">
+                  <button id="btn-fit-map" class="btn-sm">Fit All</button>
+                  <span id="map-count" class="muted-txt"></span>
+                </div>
               </div>
+              <div id="map"></div>
             </div>
-            <div id="map"></div>
-          </div>
+            <!-- Recent events under map -->
+            <div class="panel events-outer">
+              <div class="panel-header">
+                <h2>Recent Events</h2>
+                <button id="btn-clear-events" class="btn-sm">Clear</button>
+              </div>
+              <ul id="events-list"></ul>
+            </div>
+          </div><!-- /dash-left-col -->
 
           <!-- Side panel (right) -->
           <div class="dash-side">
@@ -83,8 +93,8 @@
               </form>
             </div>
 
-            <!-- System / hardware stats -->
-            <div class="panel mb-14">
+            <!-- System / hardware stats + graphs -->
+            <div class="panel">
               <div class="panel-header">
                 <h2>System</h2>
                 <button id="btn-hw-stats" class="btn-sm">Refresh</button>
@@ -95,15 +105,8 @@
                 <div class="stat-mini"><span class="lbl">Disk</span><span id="hw-disk" class="val">–</span></div>
                 <div class="stat-mini"><span class="lbl">Temp</span><span id="hw-temp" class="val">–</span></div>
               </div>
-            </div>
-
-            <!-- Recent events -->
-            <div class="panel events-outer">
-              <div class="panel-header">
-                <h2>Recent Events</h2>
-                <button id="btn-clear-events" class="btn-sm">Clear</button>
-              </div>
-              <ul id="events-list"></ul>
+              <canvas id="sys-chart-cpu" class="sys-chart" title="CPU usage over time"></canvas>
+              <canvas id="sys-chart-mem" class="sys-chart" title="RAM usage over time"></canvas>
             </div>
           </div><!-- /dash-side -->
 
@@ -156,10 +159,40 @@
       <!-- ════════ CONFIG TAB ════════ -->
       <section id="tab-config" class="tab-pane" role="tabpanel">
 
-        <!-- Companion: minimal notice -->
-        <div class="companion-only panel mb-14">
-          <div class="panel-header"><h2>Device Settings</h2></div>
-          <p class="muted-txt pd-12">Use Quick Actions on the Dashboard to set node name and location.</p>
+        <!-- Companion: device settings -->
+        <div class="companion-only">
+          <div class="cfg-layout mb-14">
+
+            <!-- Left: Node settings -->
+            <div class="panel cfg-left">
+              <div class="panel-header">
+                <h2>Node Settings</h2>
+                <div class="inline-actions">
+                  <button id="btn-advert-cfg">Send Advert</button>
+                  <button id="btn-sync-time-cfg" class="btn-ok">Sync Time</button>
+                </div>
+              </div>
+              <h3 class="form-title">Node Name</h3>
+              <form id="cfg-name-form" class="row-form mb-8">
+                <input name="name" placeholder="New node name…" maxlength="31" />
+                <button type="submit">Set</button>
+              </form>
+              <h3 class="form-title">GPS Location</h3>
+              <form id="cfg-loc-form" class="row-form-3 mb-8">
+                <input name="lat" placeholder="Latitude" type="number" step="0.000001" />
+                <input name="lon" placeholder="Longitude" type="number" step="0.000001" />
+                <button type="submit">Set</button>
+              </form>
+              <div id="companion-cfg-output" class="mono-box mt-8"></div>
+            </div>
+
+            <!-- Right: Device info -->
+            <div class="panel cfg-right">
+              <div class="panel-header"><h2>Device Info</h2></div>
+              <div id="companion-device-info" class="mono-box" style="max-height:none;min-height:80px"></div>
+            </div>
+
+          </div><!-- /cfg-layout -->
         </div>
 
         <!-- Repeater: full config management -->

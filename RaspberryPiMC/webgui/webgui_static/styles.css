@@ -123,13 +123,14 @@ button:hover { border-color: var(--accent); background: #1f3268; }
   gap: 14px;
   align-items: start;
 }
+.dash-left-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .dash-map-wrap { padding: 10px 12px 12px; }
 #map { height: 440px; border-radius: 8px; overflow: hidden; }
 
 .dash-side { display: flex; flex-direction: column; gap: 12px; }
-.events-outer { flex: 1; overflow: hidden; }
+.events-outer { overflow: hidden; }
 #events-list {
-  list-style: none; max-height: 260px; overflow-y: auto;
+  list-style: none; max-height: 200px; overflow-y: auto;
   display: flex; flex-direction: column; gap: 3px;
 }
 #events-list li {
@@ -159,8 +160,11 @@ button:hover { border-color: var(--accent); background: #1f3268; }
   gap: 14px;
 }
 .chart-card { overflow: hidden; }
-.chart-card canvas { width: 100% !important; display: block; }
+.chart-card canvas { width: 100% !important; display: block; height: 180px; }
 .chart-wide { grid-column: span 2; }
+
+/* ─────────────── System mini charts (dashboard) ─────────────── */
+.sys-chart { width: 100%; display: block; height: 72px; margin-top: 8px; }
 
 /* ─────────────── Tables ─────────────── */
 .table-wrap { overflow-x: auto; }
