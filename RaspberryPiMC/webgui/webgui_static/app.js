@@ -541,16 +541,49 @@ function renderEvents(events) {
     list.innerHTML = '<li style="color:var(--muted);padding:8px 0">No events yet…</li>';
     return;
   }
-  list.innerHTML = recent.map(e => {
-    const detail = e.payload
-      ? Object.entries(e.payload).filter(([k]) => k !== 'pubkey').map(([k, v]) => `${k}:${v}`).join(' ')
-      : '';
-    return `<li>
+  const contacts = app.snap?.contacts || [];
+  const resolveName = pk => contacts.find(cx => pk && cx.pubkey.startsWith((pk||'').slice(0, 8)))?.name || null;
+  const kindLabel = {1:'Client',2:'Repeater',3:'Server',4:'Sensor'};
+  const evSummary = e => {
+    const p = e.payload || {};
+    switch (e.type) {
+      case 'rx_advert': {
+        const name = p.name || resolveName(p.pubkey) || (p.pubkey||'').slice(0,12)+'\u2026';
+        const k = p.kind != null ? ` (${kindLabel[p.kind]||'Node'})` : '';
+        const h = p.hops === 0 ? ' Direct' : p.hops > 0 ? ` ${p.hops}hop` : '';
+        return name + k + h;
+      }
+      case 'neighbor_new': {
+        const name = p.name || resolveName(p.pubkey) || (p.pubkey||'').slice(0,12)+'\u2026';
+        return name + (p.snr != null ? ` SNR\u00a0${p.snr}\u00a0dB` : '');
+      }
+      case 'pkt_rx':
+        return `+${p.count??'?'} pkt \u03a3${p.total??'?'}` +
+          (p.rssi!=null ? ` RSSI\u00a0${p.rssi}` : '') +
+          (p.snr !=null ? ` SNR\u00a0${p.snr}` : '');
+      case 'pkt_tx':
+        return `+${p.count??'?'} sent \u03a3${p.total??'?'}`;
+      case 'chan_msg':
+        return `[${p.channel||'?'}] ${(p.text||'').slice(0,40)}`;
+      case 'contact_msg':
+        return `\uD83D\uDCE8 ${p.sender||p.pubkey_prefix||'?'}: ${(p.text||'').slice(0,40)}`;
+      case 'connected':   return `\u2192 ${p.host||'?'}:${p.port||'?'}`;
+      case 'self_info':   return p.name || '(unnamed)';
+      case 'error':       return p.message || JSON.stringify(p).slice(0,60);
+      case 'config_set':  return `${p.key}=${p.value}`;
+      default:
+        return Object.entries(p)
+          .filter(([k]) => k !== 'pubkey' && k !== 'reply')
+          .map(([k,v]) => `${k}:${v}`).join(' ').slice(0, 60);
+    }
+  };
+  list.innerHTML = recent.map(e =>
+    `<li>
       <span class="ev-type">${e.type}</span>
-      <span class="ev-detail" style="color:var(--muted);font-size:11px">${detail.slice(0, 60)}</span>
+      <span class="ev-detail" style="color:var(--muted);font-size:11px">${evSummary(e)}</span>
       <span class="ev-ts">${fmtTime(e.ts)}</span>
-    </li>`;
-  }).join('');
+    </li>`
+  ).join('');
 }
 
 // ─── Log Table ───────────────────────────────────────
@@ -577,7 +610,7 @@ function renderLog(events, filter = '') {
   });
 
   if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted)">No events</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted)">No events</td></tr>`;
     return;
   }
 
@@ -598,37 +631,65 @@ function renderLog(events, filter = '') {
     return `<td></td>`;
   };
 
+  // Resolve a pubkey prefix to a known contact name
+  const contacts = app.snap?.contacts || [];
+  const findName = pk => {
+    const c = contacts.find(cx => pk && cx.pubkey.startsWith(pk.slice(0, 8)));
+    return c?.name || null;
+  };
+
+  // Node / Key column: name + pubkey for events that carry an identity
+  const nodeStr = e => {
+    const p = e.payload || {};
+    switch (e.type) {
+      case 'rx_advert':
+      case 'neighbor_new': {
+        const name = p.name || findName(p.pubkey);
+        const key  = (p.pubkey || '').slice(0, 16);
+        if (name) return `<span class="log-node-name" title="${_esc(p.pubkey||'')}">${_esc(name)}</span>` +
+          `<span class="log-node-key">${key}…</span>`;
+        return `<span class="log-node-key" title="${_esc(p.pubkey||'')}">${key}…</span>`;
+      }
+      case 'contact_msg': {
+        const name = p.sender || findName(p.pubkey_prefix);
+        const key  = (p.pubkey_prefix || '').slice(0, 12);
+        if (name) return `<span class="log-node-name">${_esc(name)}</span>` +
+          `<span class="log-node-key">${key}…</span>`;
+        return `<span class="log-node-key">${key}…</span>`;
+      }
+      case 'chan_msg':
+      case 'chan_msg_sent': {
+        const ch = p.channel || (p.channel_idx != null ? `ch${p.channel_idx}` : null);
+        return ch ? `<span class="log-node-ch">[${_esc(ch)}]</span>` : '';
+      }
+      case 'dm_sent':
+        return p.recipient ? `<span class="log-node-name">${_esc(p.recipient)}</span>` : '';
+      default: return '';
+    }
+  };
+
   const detailStr = e => {
     const p = e.payload || {};
-    // Try to resolve a pubkey prefix to a known contact name
-    const contacts = app.snap?.contacts || [];
-    const findName = pk => {
-      const c = contacts.find(cx => pk && cx.pubkey.startsWith(pk.slice(0, 8)));
-      return c?.name || null;
-    };
     switch (e.type) {
       case 'pkt_rx': {
-        const parts = [];
-        if (p.rssi  != null) parts.push(`RSSI ${p.rssi} dBm`);
-        if (p.snr   != null) parts.push(`SNR ${p.snr} dB`);
-        if (p.count != null) parts.push(`+${p.count} pkt${p.count !== 1 ? 's' : ''}`);
-        if (p.total != null) parts.push(`(\u03a3 ${p.total})`);
+        const parts = [`+${p.count ?? '?'} pkt${(p.count ?? 1) !== 1 ? 's' : ''}`, `\u03a3 ${p.total ?? '?'}`,
+          p.rssi  != null ? `RSSI\u00a0${p.rssi}\u00a0dBm` : null,
+          p.snr   != null ? `SNR\u00a0${p.snr}\u00a0dB`  : null,
+        ].filter(Boolean);
         return parts.join(' \u00b7 ');
       }
       case 'pkt_tx': {
-        const parts = [];
-        if (p.count != null) parts.push(`+${p.count} pkt${p.count !== 1 ? 's' : ''}`);
-        if (p.total != null) parts.push(`(\u03a3 ${p.total})`);
+        const parts = [`+${p.count ?? '?'} pkt${(p.count ?? 1) !== 1 ? 's' : ''}`, `\u03a3 ${p.total ?? '?'}`].filter(Boolean);
         return parts.join(' \u00b7 ');
       }
       case 'rx_advert': {
-        const name = p.name || findName(p.pubkey);
-        const who  = name ? `${name} (${(p.pubkey||'').slice(0,12)}\u2026)` : `${(p.pubkey||'').slice(0,16)}\u2026`;
         const kindMap = {1:'Client',2:'Repeater',3:'Server',4:'Sensor'};
-        const kindStr = p.kind != null ? ` · ${kindMap[p.kind] || 'Node'}` : '';
-        const locStr  = p.lat  != null ? ` · \uD83D\uDCCD ${p.lat.toFixed(4)}, ${p.lon?.toFixed(4)}` : '';
-        const hopStr  = p.hops === 0   ? ' · Direct' : p.hops > 0 ? ` · ${p.hops} hop${p.hops !== 1 ? 's' : ''}` : '';
-        return `Advert from ${who}${kindStr}${locStr}${hopStr}`;
+        const kindStr = p.kind != null ? `${kindMap[p.kind] || 'Node'}` : 'Node';
+        const locStr  = p.lat  != null ? ` \u00b7 \uD83D\uDCCD ${p.lat.toFixed(4)}, ${p.lon?.toFixed(4)}` : '';
+        const hopStr  = p.hops === 0   ? ' \u00b7 Direct' : p.hops > 0 ? ` \u00b7 ${p.hops}\u00a0hop${p.hops !== 1 ? 's' : ''}` : '';
+        const snrStr  = p.snr  != null ? ` \u00b7 SNR\u00a0${p.snr}\u00a0dB` : '';
+        const rssiStr = p.rssi != null ? ` \u00b7 RSSI\u00a0${p.rssi}\u00a0dBm` : '';
+        return `${kindStr}${hopStr}${snrStr}${rssiStr}${locStr}`;
       }
       case 'chan_msg': {
         const snrStr = p.snr != null ? ` · SNR ${p.snr} dB` : '';
@@ -647,10 +708,9 @@ function renderLog(events, filter = '') {
         return `\uD83D\uDCE8 From ${p.sender || p.pubkey_prefix || '?'}: ${(p.text||'').slice(0,80)}${hopStr}${snrStr}`;
       }
       case 'neighbor_new': {
-        const name = findName(p.pubkey);
-        const who  = name ? `${name} (${(p.pubkey||'').slice(0,12)}\u2026)` : `${(p.pubkey||'').slice(0,16)}\u2026`;
-        const snr  = p.snr != null ? ` \u00b7 SNR ${p.snr} dB` : '';
-        return `New neighbor: ${who}${snr}`;
+        const snr  = p.snr  != null ? `SNR\u00a0${p.snr}\u00a0dB`   : null;
+        const rssi = p.rssi != null ? `RSSI\u00a0${p.rssi}\u00a0dBm` : null;
+        return 'Direct neighbor' + [[snr, rssi].filter(Boolean).join(' \u00b7 ')].filter(Boolean).map(s => ' \u00b7 ' + s).join('');
       }
       case 'connected':     return `Connected \u2192 ${p.host || '?'}:${p.port || '?'}`;
       case 'self_info':     return `Node: ${p.name || '(unnamed)'}`;
@@ -674,6 +734,7 @@ function renderLog(events, filter = '') {
       ${dirCell(e.type)}
       <td style="font-size:11px;color:var(--muted);white-space:nowrap">${fmtTime(e.ts)}</td>
       <td><span class="log-type-badge ${badgeClass(e.type)}">${e.type}</span></td>
+      <td class="log-node-cell">${nodeStr(e)}</td>
       <td style="font-size:11px;font-family:monospace">${detailStr(e)}</td>
     </tr>`
   ).join('');

@@ -816,7 +816,7 @@ class RepeaterClient:
             )
             contacts.append(contact)
             if key not in current_keys:
-                self.state.add_event("neighbor_new", {"pubkey": key[:16], "snr": snr_db})
+                self.state.add_event("neighbor_new", {"pubkey": key, "name": contact.name, "snr": snr_db})
         self.state.replace_contacts(contacts)
 
     def _update_identity(self) -> None:
