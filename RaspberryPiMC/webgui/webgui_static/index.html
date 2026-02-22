@@ -100,8 +100,6 @@
                 <button id="btn-hw-stats" class="btn-sm">Refresh</button>
               </div>
               <div class="stat-mini-grid">
-                <div class="stat-mini"><span class="lbl">CPU</span><span id="hw-cpu" class="val">–</span></div>
-                <div class="stat-mini"><span class="lbl">RAM</span><span id="hw-mem" class="val">–</span></div>
                 <div class="stat-mini"><span class="lbl">Disk</span><span id="hw-disk" class="val">–</span></div>
                 <div class="stat-mini"><span class="lbl">Temp</span><span id="hw-temp" class="val">–</span></div>
               </div>
@@ -206,88 +204,96 @@
         <div class="repeater-only">
           <div class="cfg-layout">
 
-            <!-- Parameters table -->
+            <!-- Parameters panel (grouped, metadata-driven) -->
             <div class="panel cfg-left">
               <div class="panel-header">
                 <h2>MeshCore Parameters</h2>
                 <div class="inline-actions">
-                  <button id="load-config-btn">↓ Load</button>
+                  <button id="load-config-btn">↓ Load from Device</button>
                   <button id="save-config-btn" class="btn-ok">✓ Save to Device</button>
                 </div>
               </div>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>Key</th><th>Current</th><th>New Value</th><th></th></tr></thead>
-                  <tbody id="config-rows"></tbody>
-                </table>
-              </div>
-              <form id="config-set-form" class="row-form-3 mt-8">
-                <input name="key"   placeholder="Key (eg: txdelay)" />
-                <input name="value" placeholder="Value" />
-                <button type="submit">Set</button>
-              </form>
+              <div id="config-groups"></div>
               <div id="config-output" class="mono-box mt-8"></div>
             </div>
 
-            <!-- Region management -->
+            <!-- Region routing panel -->
             <div class="panel cfg-right">
               <div class="panel-header">
-                <h2>Region Management</h2>
+                <h2>Region Routing</h2>
                 <div class="inline-actions">
                   <button id="refresh-regions-btn">↻ Refresh</button>
                   <button id="save-regions-btn" class="btn-ok">✓ Save</button>
                 </div>
               </div>
-              <h3 class="form-title">Home Region</h3>
-              <form id="region-home-form" class="row-form mb-8">
-                <input name="name" placeholder="eg: #Europe" />
-                <button type="submit">Set Home</button>
-              </form>
-              <h3 class="form-title">Create / Remove</h3>
-              <form id="region-put-form" class="row-form-3 mb-8">
-                <input name="name"   placeholder="Region name" />
-                <input name="parent" placeholder="Parent (optional)" />
-                <button type="submit">Create</button>
-              </form>
-              <form id="region-remove-form" class="row-form mb-8">
-                <input name="name" placeholder="Region to remove" />
-                <button type="submit">Remove</button>
-              </form>
-              <h3 class="form-title">Flood Policy</h3>
-              <form id="region-flag-form" class="row-form-3 mb-8">
-                <select name="mode">
-                  <option value="allowf">Allow Flood</option>
-                  <option value="denyf">Deny Flood</option>
-                </select>
-                <input name="name" placeholder="Region name" />
-                <button type="submit">Apply</button>
-              </form>
-              <h3 class="form-title">Inspect / Load</h3>
-              <form id="region-get-form" class="row-form mb-8">
-                <input name="name" placeholder="Inspect region" />
-                <button type="submit">Get</button>
-              </form>
-              <form id="region-load-form" class="row-form-3 mb-8">
-                <input name="name" placeholder="Load named region" />
-                <label class="flag-checkbox"><input type="checkbox" name="flood" /> Flood</label>
-                <button type="submit">Load</button>
-              </form>
-              <div id="region-output" class="mono-box mt-8"></div>
-            </div>
+
+              <!-- Current state always visible at top -->
+              <div id="region-output" class="mono-box" style="min-height:60px;max-height:180px;margin-bottom:14px"></div>
+
+              <div class="cfg-region-section">
+                <h3 class="form-title">&#127968; Home Region</h3>
+                <p class="form-hint">Packets arriving in this region are accepted. Use <code>#RegionName</code> format.</p>
+                <form id="region-home-form" class="row-form">
+                  <input name="name" placeholder="eg: #Europe" />
+                  <button type="submit">Set Home</button>
+                </form>
+              </div>
+
+              <div class="cfg-region-section">
+                <h3 class="form-title">&#128193; Manage Regions</h3>
+                <p class="form-hint">Regions form a hierarchy for packet routing. Create child regions under a parent.</p>
+                <form id="region-put-form" class="row-form-3 mb-8">
+                  <input name="name"   placeholder="New region name" />
+                  <input name="parent" placeholder="Parent region (optional)" />
+                  <button type="submit">+ Create</button>
+                </form>
+                <form id="region-remove-form" class="row-form">
+                  <input name="name" placeholder="Region name to remove" />
+                  <button type="submit" class="btn-err">&#10005; Remove</button>
+                </form>
+              </div>
+
+              <div class="cfg-region-section">
+                <h3 class="form-title">&#128225; Flood Policy</h3>
+                <p class="form-hint">Control which regions are allowed to flood-broadcast packets.</p>
+                <form id="region-flag-form" class="row-form-3">
+                  <select name="mode">
+                    <option value="allowf">Allow Flood</option>
+                    <option value="denyf">Deny Flood</option>
+                  </select>
+                  <input name="name" placeholder="Region name" />
+                  <button type="submit">Apply</button>
+                </form>
+              </div>
+
+              <div class="cfg-region-section">
+                <h3 class="form-title">&#128269; Inspect &amp; Load Preset</h3>
+                <form id="region-get-form" class="row-form mb-8">
+                  <input name="name" placeholder="Region name to inspect" />
+                  <button type="submit">Inspect</button>
+                </form>
+                <form id="region-load-form" class="row-form-3">
+                  <input name="name" placeholder="Load named region preset" />
+                  <label class="flag-checkbox"><input type="checkbox" name="flood" /> Flood</label>
+                  <button type="submit">Load</button>
+                </form>
+              </div>
+
+            </div><!-- /cfg-right -->
 
           </div><!-- /cfg-layout -->
 
           <!-- CLI terminal -->
           <div class="panel mt-14">
             <div class="panel-header">
-              <h2>CLI Terminal</h2>
+              <h2>&#9881; CLI Terminal</h2>
               <div class="inline-actions">
-                <button id="btn-reboot" class="btn-err">⚡ Reboot Node</button>
+                <span style="color:var(--muted);font-size:11px">Try: radio-diag · ver · neighbors · stats-core · stats-radio</span>
+                <button id="btn-reboot" class="btn-err">&#9889; Reboot Node</button>
               </div>
             </div>
             <form id="raw-form" class="row-form">
-              <input name="cmd" class="cli-input" 
-                     placeholder="CLI command… (eg: radio-diag, ver, neighbors, stats-core)" />
+              <input name="cmd" class="cli-input" placeholder="Type CLI command and press Enter…" />
               <button type="submit">Run</button>
             </form>
             <div id="raw-output" class="mono-box cli-output mt-8"></div>
@@ -295,10 +301,11 @@
 
           <!-- Neighbor remove -->
           <div class="panel mt-14">
-            <div class="panel-header"><h2>Remove Neighbor</h2></div>
+            <div class="panel-header"><h2>&#128683; Remove Neighbor</h2></div>
+            <p class="form-hint" style="padding:0 0 8px 0">Enter the first 8–16 hex chars of the neighbor's public key.</p>
             <form id="neighbor-form" class="row-form">
-              <input name="pubkey_prefix" placeholder="Neighbor pubkey prefix (hex)" />
-              <button type="submit">Remove</button>
+              <input name="pubkey_prefix" placeholder="Neighbor pubkey prefix (hex, eg: a3f2c1b0…)" />
+              <button type="submit" class="btn-err">Remove</button>
             </form>
           </div>
 

@@ -656,17 +656,21 @@ class RepeaterClient:
 
     def _update_identity(self) -> None:
         name_raw = self.send_cli_command("get name")
-        lat_raw = self.send_cli_command("get lat")
-        lon_raw = self.send_cli_command("get lon")
+        lat_raw  = self.send_cli_command("get lat")
+        lon_raw  = self.send_cli_command("get lon")
+        freq_raw = self.send_cli_command("get freq")  # returns MHz
 
         current = dict(self.state.self_info)
         current["name"] = name_raw.strip() or current.get("name", "")
-        lat_v = _extract_float(lat_raw)
-        lon_v = _extract_float(lon_raw)
+        lat_v  = _extract_float(lat_raw)
+        lon_v  = _extract_float(lon_raw)
+        freq_v = _extract_float(freq_raw)
         if lat_v is not None:
             current["adv_lat"] = lat_v
         if lon_v is not None:
             current["adv_lon"] = lon_v
+        if freq_v is not None and freq_v > 0:
+            current["radio_freq_khz"] = int(freq_v * 1000)  # MHz → kHz
         self.state.self_info = current
 
     def refresh(self, full: bool = False) -> None:

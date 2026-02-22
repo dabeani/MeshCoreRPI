@@ -15,7 +15,7 @@ const app = {
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
-const mcMap = L.map('map', { zoomControl: true }).setView([20, 0], 2);
+const mcMap = L.map('map', { zoomControl: true, closePopupOnClick: false }).setView([20, 0], 2);
 // Dark CartoDB tiles to match pyMC style
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 19,
@@ -191,7 +191,8 @@ function updateMap(snap) {
     m.bindPopup(
       `<div style="min-width:160px"><b>${si.name || 'This Node'}</b><br>` +
       `<span style="color:#58a6ff">Self (${snap.role || 'unknown'})</span><br>` +
-      `${selfLat.toFixed(5)}, ${selfLon.toFixed(5)}</div>`
+      `${selfLat.toFixed(5)}, ${selfLon.toFixed(5)}</div>`,
+      { autoClose: false, closeOnClick: false }
     );
     m.addTo(markerLayer);
     bounds.push([selfLat, selfLon]);
@@ -216,7 +217,8 @@ function updateMap(snap) {
       `<span style="color:#2ecc71">${contactKindStr(c.kind, snap.role)}</span> · ${hopStr}${snrStr}<br>` +
       `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}<br>` +
       `Last: ${fmtTime(c.last_advert_timestamp)}<br>` +
-      `<small style="color:#7a8fc7">${c.pubkey.slice(0,16)}…</small></div>`
+      `<small style="color:#7a8fc7">${c.pubkey.slice(0,16)}…</small></div>`,
+      { autoClose: false, closeOnClick: false }
     );
     m.addTo(markerLayer);
     bounds.push([c.lat, c.lon]);
@@ -523,7 +525,7 @@ function renderLog(events, filter = '') {
     if (catFilter === 'all')    return true;
     if (catFilter === 'pkt')    return type === 'pkt_rx' || type === 'pkt_tx';
     if (catFilter === 'advert') return type === 'rx_advert' || type === 'neighbor_new';
-    if (catFilter === 'system') return /^(connected|error|reboot|config_set|config_save|self_info)$/.test(type);
+    if (catFilter === 'system') return /^(connected|error|reboot|config_set|config_save|self_info|command|region_home|region_put|region_remove|region_allowf|region_denyf|region_load|region_get)$/.test(type);
     return true;
   };
 
@@ -544,9 +546,10 @@ function renderLog(events, filter = '') {
     if (type === 'pkt_rx' || type === 'rx_advert') return 'rx';
     if (type === 'pkt_tx')                          return 'tx';
     if (type === 'neighbor_new')                    return 'adv';
+    if (type === 'connected' || type === 'self_info') return 'cfg';
     if (/error|fail/i.test(type))                   return 'err';
-    if (/config|save|set/i.test(type))              return 'cfg';
-    if (/warn|mode/i.test(type))                    return 'warn';
+    if (/config|save|set|reboot/i.test(type))       return 'cfg';
+    if (/region/i.test(type))                       return 'warn';
     return '';
   };
 
@@ -558,23 +561,53 @@ function renderLog(events, filter = '') {
 
   const detailStr = e => {
     const p = e.payload || {};
-    if (e.type === 'pkt_rx') {
-      const parts = [];
-      if (p.rssi  != null) parts.push(`RSSI: ${p.rssi} dBm`);
-      if (p.snr   != null) parts.push(`SNR: ${p.snr} dB`);
-      if (p.count != null) parts.push(`+${p.count} pkts`);
-      return parts.join(' · ');
+    // Try to resolve a pubkey prefix to a known contact name
+    const contacts = app.snap?.contacts || [];
+    const findName = pk => {
+      const c = contacts.find(cx => pk && cx.pubkey.startsWith(pk.slice(0, 8)));
+      return c?.name || null;
+    };
+    switch (e.type) {
+      case 'pkt_rx': {
+        const parts = [];
+        if (p.rssi  != null) parts.push(`RSSI ${p.rssi} dBm`);
+        if (p.snr   != null) parts.push(`SNR ${p.snr} dB`);
+        if (p.count != null) parts.push(`+${p.count} pkt${p.count !== 1 ? 's' : ''}`);
+        if (p.total != null) parts.push(`(\u03a3 ${p.total})`);
+        return parts.join(' \u00b7 ');
+      }
+      case 'pkt_tx': {
+        const parts = [];
+        if (p.count != null) parts.push(`+${p.count} pkt${p.count !== 1 ? 's' : ''}`);
+        if (p.total != null) parts.push(`(\u03a3 ${p.total})`);
+        return parts.join(' \u00b7 ');
+      }
+      case 'rx_advert': {
+        const name = findName(p.pubkey);
+        const who  = name ? `${name} (${(p.pubkey||'').slice(0,12)}\u2026)` : `${(p.pubkey||'').slice(0,16)}\u2026`;
+        return `Advert from ${who}`;
+      }
+      case 'neighbor_new': {
+        const name = findName(p.pubkey);
+        const who  = name ? `${name} (${(p.pubkey||'').slice(0,12)}\u2026)` : `${(p.pubkey||'').slice(0,16)}\u2026`;
+        const snr  = p.snr != null ? ` \u00b7 SNR ${p.snr} dB` : '';
+        return `New neighbor: ${who}${snr}`;
+      }
+      case 'connected':     return `Connected \u2192 ${p.host || '?'}:${p.port || '?'}`;
+      case 'self_info':     return `Node: ${p.name || '(unnamed)'}`;
+      case 'error':         return `\u26a0 ${p.message || JSON.stringify(p)}`;
+      case 'config_set':    return `${p.key} = ${p.value}`;
+      case 'config_save':   return 'Config saved to device flash';
+      case 'reboot':        return `Node reboot${p.reply ? ': ' + p.reply : ''}`;
+      case 'command':       return `cmd: ${p.name}${p.reply ? ' \u2192 ' + String(p.reply).slice(0,80) : ''}`;
+      case 'region_home':   return `Home region set: ${p.name}`;
+      case 'region_put':    return `Region created: ${p.name}${p.parent ? ' under ' + p.parent : ''}`;
+      case 'region_remove': return `Region removed: ${p.name}`;
+      case 'region_allowf': return `Flood ALLOWED for: ${p.name}`;
+      case 'region_denyf':  return `Flood DENIED for: ${p.name}`;
+      case 'region_load':   return `Region preset loaded: ${p.name}${p.flood_flag ? ' (flood)' : ''}`;
+      default:              return Object.entries(p).map(([k,v]) => `${k}: ${v}`).join(' \u00b7 ').slice(0,200) || '\u2013';
     }
-    if (e.type === 'pkt_tx') {
-      const parts = [];
-      if (p.count != null) parts.push(`+${p.count} pkts`);
-      if (p.total != null) parts.push(`total: ${p.total}`);
-      return parts.join(' · ');
-    }
-    if (e.type === 'rx_advert' || e.type === 'neighbor_new') {
-      return p.pubkey ? `${p.pubkey.slice(0, 16)}…` : JSON.stringify(p).slice(0, 120);
-    }
-    return JSON.stringify(p).slice(0, 160);
   };
 
   tbody.innerHTML = filtered.slice(0, 500).map(e =>
@@ -599,22 +632,66 @@ function updateHwStats(stats) {
   if (temp) temp.textContent = stats.cpu_temp     != null ? `${stats.cpu_temp}°C` : '–';
 }
 
-// ─── Config Management ───────────────────────────────
+// ─── Config Management ───────────────────────────────────────────
+// Human-readable metadata for known MeshCore config keys
+const CONFIG_META = {
+  // Radio
+  freq:    { label: 'Frequency',        unit: 'MHz',  group: 'Radio',    desc: 'LoRa carrier frequency (e.g. 869.525 for EU)' },
+  bw:      { label: 'Bandwidth',        unit: 'kHz',  group: 'Radio',    desc: 'Channel bandwidth — 125 / 250 / 500 kHz' },
+  sf:      { label: 'Spreading Factor', unit: '',     group: 'Radio',    desc: 'SF7–SF12 · Higher = longer range & slower airtime' },
+  cr:      { label: 'Coding Rate',      unit: '',     group: 'Radio',    desc: 'Error correction ratio — 5 (4/5) … 8 (4/8)' },
+  txpow:   { label: 'TX Power',         unit: 'dBm',  group: 'Radio',    desc: 'Transmit power in dBm' },
+  txdelay: { label: 'TX Delay',         unit: 'ms',   group: 'Radio',    desc: 'Random delay added before transmitting to reduce collisions' },
+  // Identity
+  name:    { label: 'Node Name',        unit: '',     group: 'Identity', desc: 'Displayed name on the mesh network (max 31 chars)' },
+  // Location
+  lat:     { label: 'Latitude',         unit: '°',    group: 'Location', desc: 'GPS latitude in decimal degrees (eg: 48.8566)' },
+  lon:     { label: 'Longitude',        unit: '°',    group: 'Location', desc: 'GPS longitude in decimal degrees (eg: 2.3522)' },
+  // Routing / Operation
+  repeat:  { label: 'Repeat Mode',      unit: '',     group: 'Routing',  desc: '0 = monitor only · 1 = forward / repeat packets' },
+  airtime: { label: 'Airtime Limit',    unit: '%',    group: 'Routing',  desc: 'Max airtime fraction reserved for forwarding (0–100)' },
+  maxhops: { label: 'Max Hops',         unit: '',     group: 'Routing',  desc: 'Maximum hop count before a packet is discarded' },
+};
+
 function renderConfigRows() {
-  const tbody = document.getElementById('config-rows');
-  if (!tbody) return;
+  const container = document.getElementById('config-groups');
+  if (!container) return;
+
   if (!app.configKeys.length) {
-    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--muted)">No config loaded. Click ↓ Load.</td></tr>';
+    container.innerHTML = '<p class="cfg-no-params">No config loaded. Click ↓ Load from Device to fetch parameters.</p>';
     return;
   }
-  tbody.innerHTML = app.configKeys.map(key => {
-    const v = String(app.configValues[key] ?? '').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-    return `<tr>
-      <td style="font-family:monospace;font-size:11px">${key}</td>
-      <td style="font-family:monospace;font-size:11px">${v}</td>
-      <td><input data-config-input="${key}" value="${v}" /></td>
-      <td><button class="btn-sm" data-config-set="${key}">Set</button></td>
-    </tr>`;
+
+  // Group all keys
+  const groups = {};
+  const GROUP_ORDER = ['Radio', 'Identity', 'Location', 'Routing', 'Other'];
+  for (const key of app.configKeys) {
+    const g = CONFIG_META[key]?.group || 'Other';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(key);
+  }
+  const sorted = [...GROUP_ORDER.filter(g => groups[g]), ...Object.keys(groups).filter(g => !GROUP_ORDER.includes(g))];
+
+  container.innerHTML = sorted.map(group => {
+    const rows = (groups[group] || []).map(key => {
+      const meta = CONFIG_META[key];
+      const raw  = app.configValues[key] ?? '';
+      const v    = String(raw).replace(/</g, '&lt;').replace(/"/g, '&quot;');
+      const label   = meta?.label || key;
+      const unitHtml = meta?.unit  ? `<span style="color:var(--muted);font-size:10px"> ${meta.unit}</span>` : '';
+      const descHtml = meta?.desc  ? `<small style="display:block;color:var(--muted);font-size:10px;margin-top:1px">${meta.desc}</small>` : '';
+      return `<div class="cfg-param-row">
+        <div class="cfg-param-label">
+          <span>${label}${unitHtml}</span>
+          <code>${key}</code>
+          ${descHtml}
+        </div>
+        <div class="cfg-param-value"><span class="cfg-current-val" title="${v}">${v || '–'}</span></div>
+        <div class="cfg-param-edit"><input data-config-input="${key}" value="${v}" /></div>
+        <div class="cfg-param-action"><button class="btn-sm" data-config-set="${key}">Set</button></div>
+      </div>`;
+    }).join('');
+    return `<div class="cfg-group"><div class="cfg-group-header">${group}</div>${rows}</div>`;
   }).join('');
 }
 
@@ -799,8 +876,8 @@ function wireUi() {
     renderLog([], '');
   });
 
-  // Config table delegated set-button
-  document.getElementById('config-rows')?.addEventListener('click', e => {
+  // Config: delegated set-button click from grouped param display
+  document.getElementById('config-groups')?.addEventListener('click', e => {
     const btn = e.target.closest('[data-config-set]');
     if (!btn) return;
     const key = btn.dataset.configSet;
@@ -813,16 +890,6 @@ function wireUi() {
   document.getElementById('save-config-btn')?.addEventListener('click', async () => {
     const d = await sendCommand('config_save');
     setOutput('config-output', d?.payload?.reply || JSON.stringify(d?.payload) || 'Saved.');
-  });
-
-  // Config set form
-  document.getElementById('config-set-form')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const key = fd.get('key')?.trim(), value = fd.get('value')?.trim();
-    if (!key || !value) return;
-    await setConfigKey(key, value);
-    e.target.reset();
   });
 
   // Region buttons
