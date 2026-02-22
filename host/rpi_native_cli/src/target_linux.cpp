@@ -224,12 +224,17 @@ void radio_set_tx_power(int8_t dbm) {
                                dbm);
 }
 
-void radio_set_hw_config(int spi_bus, int spi_cs, int spi_speed_hz,
+void radio_set_hw_config(const char* spi_dev_prefix, int spi_bus, int spi_cs, int spi_speed_hz,
                          int cs_pin,
                          int reset_pin, int busy_pin, int irq_pin,
                          int txen_pin, int rxen_pin,
                          bool use_dio3_tcxo,
                          bool use_dio2_rf_switch) {
+  if (spi_dev_prefix && spi_dev_prefix[0] != '\0') {
+    g_cfg.spi_dev_prefix = spi_dev_prefix;
+  } else {
+    g_cfg.spi_dev_prefix = "/dev/spidev";
+  }
   g_cfg.spi_bus = spi_bus;
   g_cfg.spi_cs = spi_cs;
   g_cfg.spi_speed_hz = spi_speed_hz;

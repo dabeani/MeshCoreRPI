@@ -37,6 +37,7 @@ int main(int argc, char** argv) {
   int spi_bus = 0;
   int spi_cs = 0;
   int spi_speed_hz = 8000000;
+  std::string spi_dev_prefix = "/dev/spidev";
   int cs_pin = 21;
   int reset_pin = 18;
   int busy_pin = 20;
@@ -68,6 +69,7 @@ int main(int argc, char** argv) {
       tx_dbm = static_cast<int8_t>(std::stoi(argv[++i]));
       runtime_radio_override = true;
     }
+    else if (a == "--spi-dev-prefix" && i + 1 < argc) spi_dev_prefix = argv[++i];
     else if (a == "--spi-bus" && i + 1 < argc) spi_bus = std::stoi(argv[++i]);
     else if (a == "--spi-cs" && i + 1 < argc) spi_cs = std::stoi(argv[++i]);
     else if (a == "--spi-speed" && i + 1 < argc) spi_speed_hz = std::stoi(argv[++i]);
@@ -82,14 +84,14 @@ int main(int argc, char** argv) {
     else if (a == "--tcp-port" && i + 1 < argc) tcp_port = std::stoi(argv[++i]);
     else if (a == "--help") {
       std::cout << "Usage: meshcore-rpi-native-companion [--freq HZ] [--sf N] [--bw HZ] [--cr N] [--tx DBM] [--tcp-port N]"
-                   " [--spi-bus N] [--spi-cs N] [--spi-speed HZ]"
+                   " [--spi-dev-prefix PATH] [--spi-bus N] [--spi-cs N] [--spi-speed HZ]"
                    " [--cs-pin N] [--reset-pin N] [--busy-pin N] [--irq-pin N] [--txen-pin N] [--rxen-pin N]"
                    " [--no-tcxo] [--no-dio2-rf]\n";
       return 0;
     }
   }
 
-  radio_set_hw_config(spi_bus, spi_cs, spi_speed_hz, cs_pin, reset_pin, busy_pin, irq_pin, txen_pin, rxen_pin,
+  radio_set_hw_config(spi_dev_prefix.c_str(), spi_bus, spi_cs, spi_speed_hz, cs_pin, reset_pin, busy_pin, irq_pin, txen_pin, rxen_pin,
                       use_dio3_tcxo, use_dio2_rf_switch);
   radio_set_params(freq_mhz, bw_khz, sf, cr);
   radio_set_tx_power(tx_dbm);

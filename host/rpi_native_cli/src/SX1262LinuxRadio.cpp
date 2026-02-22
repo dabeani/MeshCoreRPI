@@ -86,7 +86,7 @@ std::string SX1262LinuxRadio::gpioNodePath(int pin, const std::string& node) {
 
 void SX1262LinuxRadio::openSpi() {
 #ifdef __linux__
-  const std::string dev = "/dev/spidev" + std::to_string(cfg.spi_bus) + "." + std::to_string(cfg.spi_cs);
+  const std::string dev = cfg.spi_dev_prefix + std::to_string(cfg.spi_bus) + "." + std::to_string(cfg.spi_cs);
   spi_fd = open(dev.c_str(), O_RDWR);
   if (spi_fd < 0) {
     throw std::runtime_error("failed to open SPI device: " + dev);

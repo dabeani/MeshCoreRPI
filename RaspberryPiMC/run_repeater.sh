@@ -30,6 +30,7 @@ exec "$BIN" \
   --bw "${RPI_BW_HZ:-250000}" \
   --cr "${RPI_CR:-5}" \
   --tx "${RPI_TX_DBM:-22}" \
+  --spi-dev-prefix "${RPI_SPI_DEV_PREFIX:-/dev/spidev}" \
   --spi-bus "${RPI_SPI_BUS:-0}" \
   --spi-cs "${RPI_SPI_CS:-0}" \
   --spi-speed "${RPI_SPI_SPEED_HZ:-8000000}" \

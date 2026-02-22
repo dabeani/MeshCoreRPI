@@ -8,6 +8,7 @@
 class SX1262LinuxRadio : public mesh::Radio {
 public:
   struct Config {
+    std::string spi_dev_prefix = "/dev/spidev";
     int spi_bus = 0;
     int spi_cs = 0;
     int spi_speed_hz = 8000000;

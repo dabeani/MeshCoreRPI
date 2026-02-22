@@ -98,6 +98,7 @@ sudo systemctl enable --now raspberrypimc-companion.service
 For Waveshare SX1262 HAT, ensure these keys exist in `/etc/raspberrypimc/repeater.env`:
 
 ```dotenv
+RPI_SPI_DEV_PREFIX=/dev/spidev
 RPI_CS_PIN=21
 RPI_TXEN_PIN=13
 RPI_RXEN_PIN=12
@@ -105,9 +106,18 @@ RPI_USE_TCXO=0
 RPI_USE_DIO2_RF=0
 ```
 
+You can override the SPI device path prefix when your system does not expose
+`/dev/spidev*` (example: `/dev/spi-bridge*`):
+
+```dotenv
+RPI_SPI_DEV_PREFIX=/dev/spi-bridge
+```
+
+If `RPI_SPI_DEV_PREFIX` is not set, the runtime default is `/dev/spidev`.
+
 These map to runtime flags equivalent to:
 
-`--cs-pin 21 --txen-pin 13 --rxen-pin 12 --no-tcxo --no-dio2-rf`
+`--spi-dev-prefix /dev/spidev --cs-pin 21 --txen-pin 13 --rxen-pin 12 --no-tcxo --no-dio2-rf`
 
 ### 2b) Persistent autostart on boot (repeater only)
 
@@ -185,7 +195,7 @@ radio-diag
 
 `radio-diag` now includes extended SX1262 native runtime config and live values, including:
 
-- SPI (`spi_bus`, `spi_cs`, `spi_speed`)
+- SPI (`spi_dev_prefix`, `spi_bus`, `spi_cs`, `spi_speed`)
 - radio (`freq`, `bw`, `sf`, `cr`, `tx`, `pre`, `sync`)
 - pins (`cs_pin`, `reset_pin`, `busy_pin`, `irq_pin`, `txen`, `rxen`)
 - control flags (`dio2_rf`, `tcxo`, `tcxo_voltage`, `tcxo_delay_us`)
@@ -203,6 +213,25 @@ cd ~/MeshCoreRPI
 sudo bash RaspberryPiMC/setup_env.sh
 cp RaspberryPiMC/.env.example RaspberryPiMC/.env
 nano RaspberryPiMC/.env
+```
+
+Common `.env` runtime options:
+
+```dotenv
+RPI_FREQ_HZ=869618000
+RPI_SF=8
+RPI_BW_HZ=62500
+RPI_CR=8
+RPI_TX_DBM=22
+RPI_SPI_DEV_PREFIX=/dev/spidev   # override to /dev/spi-bridge when needed
+RPI_SPI_BUS=0
+RPI_SPI_CS=0
+RPI_SPI_SPEED_HZ=1000000
+RPI_RESET_PIN=18
+RPI_BUSY_PIN=20
+RPI_IRQ_PIN=16
+RPI_TXEN_PIN=13
+RPI_RXEN_PIN=12
 ```
 
 Build and run manually:

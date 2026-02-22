@@ -1089,13 +1089,13 @@ void MyMesh::formatRadioDiagReply(char *reply) {
   const auto cfg = radio_driver.getConfig();
   sprintf(reply,
           "{\"status\":%u,\"irq\":%u,\"irq_hex\":\"0x%04X\",\"dev_errors\":%u,\"dev_errors_hex\":\"0x%04X\","
-      "\"spi_bus\":%d,\"spi_cs\":%d,\"spi_speed\":%d,"
+      "\"spi_dev_prefix\":\"%s\",\"spi_bus\":%d,\"spi_cs\":%d,\"spi_speed\":%d,"
       "\"freq\":%d,\"bw\":%d,\"sf\":%d,\"cr\":%d,\"tx\":%d,\"pre\":%d,\"sync\":\"0x%04X\","
       "\"cs_pin\":%d,\"reset_pin\":%d,\"busy_pin\":%d,\"irq_pin\":%d,\"txen\":%d,\"rxen\":%d,"
       "\"dio2_rf\":%d,\"tcxo\":%d,\"tcxo_voltage\":%u,\"tcxo_delay_us\":%u,"
       "\"last_rssi\":%.1f,\"last_snr\":%.2f,\"noise_floor\":%d}",
           st, irq, irq, errs, errs,
-      cfg.spi_bus, cfg.spi_cs, cfg.spi_speed_hz,
+      cfg.spi_dev_prefix.c_str(), cfg.spi_bus, cfg.spi_cs, cfg.spi_speed_hz,
           cfg.frequency_hz, cfg.bandwidth_hz, cfg.spreading_factor, cfg.coding_rate, cfg.tx_power_dbm,
           cfg.preamble_len, cfg.sync_word,
       cfg.cs_pin, cfg.reset_pin, cfg.busy_pin, cfg.irq_pin, cfg.txen_pin, cfg.rxen_pin,
