@@ -876,20 +876,100 @@ async function setConfigKey(key, value) {
   }
 }
 
+// ─── Region Manager ──────────────────────────────────
+let app_selectedRegion = null;
+
 async function refreshRegions() {
-  setOutput('region-output', 'Refreshing regions…');
-  const [dump, allowed, denied, home] = await Promise.all([
-    sendCommand('region_dump'),
-    sendCommand('regions_allowed'),
-    sendCommand('regions_denied'),
-    sendCommand('region_home_get'),
-  ]);
-  setOutput('region-output', [
-    '=== HOME ===',     home?.payload?.reply    || '–',
-    '', '=== TREE ===',    dump?.payload?.reply    || '–',
-    '', '=== ALLOWED ===', allowed?.payload?.reply || '–',
-    '', '=== DENIED ===',  denied?.payload?.reply  || '–',
-  ].join('\n'));
+  setRegionStatus('Fetching regions…');
+  const d = await sendCommand('region_refresh_full');
+  if (!d?.ok) {
+    setRegionStatus('Error: ' + (d?.error || '?'));
+    return;
+  }
+  const { home, regions } = d.payload;
+  renderRegionTree(regions, home);
+  const homeEl = document.getElementById('region-home-display');
+  if (homeEl) homeEl.textContent = home || '(none)';
+  setRegionStatus(`${regions.length} region${regions.length !== 1 ? 's' : ''} loaded`);
+  updateParentDropdown(regions);
+}
+
+function setRegionStatus(msg) {
+  const el = document.getElementById('region-status');
+  if (el) el.textContent = msg;
+}
+
+function buildRegionTree(regions) {
+  const map = {};
+  regions.forEach(r => { map[r.name] = { ...r, children: [] }; });
+  const roots = [];
+  regions.forEach(r => {
+    if (r.parent && map[r.parent]) map[r.parent].children.push(map[r.name]);
+    else roots.push(map[r.name]);
+  });
+  return roots;
+}
+
+function renderRegionTree(regions, home) {
+  const container = document.getElementById('region-tree-list');
+  if (!container) return;
+  if (!regions || !regions.length) {
+    container.innerHTML = '<div class="region-tree-empty">No regions configured</div>';
+    return;
+  }
+  const roots = buildRegionTree(regions);
+  function renderNode(node, depth) {
+    const indent = depth * 16;
+    const isWild = node.name === '*';
+    const selClass = node.name === app_selectedRegion ? ' selected' : '';
+    const nameClass = isWild ? ' region-node-wildcard' : '';
+    const floodBadge = node.flood
+      ? '<span class="region-node-badge flood">F</span>'
+      : '<span class="region-node-badge deny">\u00d7F</span>';
+    const homeBadge = node.home ? '<span class="region-node-badge home">HOME</span>' : '';
+    let html = `<div class="region-tree-node${selClass}" data-region="${_esc(node.name)}" style="padding-left:${8 + indent}px">` +
+      `<span class="region-tree-node-name${nameClass}">${_esc(node.name)}</span>` +
+      `${floodBadge}${homeBadge}</div>`;
+    node.children.forEach(c => { html += renderNode(c, depth + 1); });
+    return html;
+  }
+  container.innerHTML = roots.map(r => renderNode(r, 0)).join('');
+}
+
+function updateParentDropdown(regions) {
+  const sel = document.getElementById('region-parent-select');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">* (root)</option>';
+  (regions || []).forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.name; opt.textContent = r.name;
+    if (r.name === prev) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function selectRegion(name) {
+  app_selectedRegion = name;
+  document.querySelectorAll('.region-tree-node').forEach(n =>
+    n.classList.toggle('selected', n.dataset.region === name)
+  );
+  const regions = app.snap?.regions || [];
+  const r = regions.find(x => x.name === name);
+  const placeholder = document.getElementById('region-detail-placeholder');
+  const content     = document.getElementById('region-detail-content');
+  const nameEl      = document.getElementById('region-detail-name');
+  const metaEl      = document.getElementById('region-detail-meta');
+  if (!r || !placeholder || !content) return;
+  placeholder.style.display = 'none';
+  content.style.display = '';
+  nameEl.textContent = r.name;
+  const parts = [];
+  if (r.parent) parts.push(`Parent: ${r.parent}`);
+  else parts.push('Parent: * (root)');
+  parts.push(r.flood ? '\ud83c\udf0a Flood: allowed' : '\ud83d\udeab Flood: denied');
+  if (r.home) parts.push('\ud83c\udfe0 Home region');
+  metaEl.textContent = parts.join('  ·  ');
 }
 
 // ─── Full Render ─────────────────────────────────────
@@ -939,6 +1019,15 @@ function renderAll(snap) {
   if (app.activeTab === 'contacts') renderContacts(snap, document.getElementById('contact-search')?.value || '');
   if (app.activeTab === 'logs')     renderLog(snap.events || [], document.getElementById('log-filter')?.value || '');
   if (app.activeTab === 'channels') renderChannels(snap);
+
+  // Region tree: sync from pushed state when on config tab
+  if (app.activeTab === 'config' && snap.regions?.length) {
+    const home = snap.regions.find(r => r.home)?.name || '';
+    renderRegionTree(snap.regions, home);
+    const homeEl = document.getElementById('region-home-display');
+    if (homeEl && homeEl.textContent === '–') homeEl.textContent = home || '(none)';
+    updateParentDropdown(snap.regions);
+  }
 
   // Track new messages and update the tab badge (even off-tab)
   const msgs = snap.messages || [];
@@ -1065,71 +1154,121 @@ function wireUi() {
     setOutput('config-output', d?.payload?.reply || JSON.stringify(d?.payload) || 'Saved.');
   });
 
-  // Region buttons
+  // ── Region panel ──────────────────────────────────────
   document.getElementById('refresh-regions-btn')?.addEventListener('click', refreshRegions);
   document.getElementById('save-regions-btn')?.addEventListener('click', async () => {
     const d = await sendCommand('region_save');
-    setOutput('region-output', d?.payload?.reply || 'Saved.');
+    setRegionStatus(d?.payload?.reply || 'Saved.');
   });
 
-  // Region forms
-  document.getElementById('region-home-form')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const name = new FormData(e.target).get('name')?.trim();
-    if (name) {
-      const d = await sendCommand('region_home_set', { name });
-      setOutput('region-output', d?.payload?.reply || JSON.stringify(d?.payload));
-      e.target.reset();
-    }
+  // Tree click (delegated)
+  document.getElementById('region-tree-list')?.addEventListener('click', e => {
+    const node = e.target.closest('[data-region]');
+    if (node) selectRegion(node.dataset.region);
   });
+
+  // Add form toggle
+  document.getElementById('btn-region-add-open')?.addEventListener('click', () => {
+    const f = document.getElementById('region-add-form');
+    if (f) f.style.display = f.style.display === 'none' ? '' : 'none';
+  });
+  document.getElementById('btn-region-add-cancel')?.addEventListener('click', () => {
+    const f = document.getElementById('region-add-form');
+    if (f) f.style.display = 'none';
+  });
+
+  // Add region form submit
   document.getElementById('region-put-form')?.addEventListener('submit', async e => {
     e.preventDefault();
-    const fd = new FormData(e.target);
-    const name = fd.get('name')?.trim(), parent = fd.get('parent')?.trim() || '';
-    if (name) {
-      const d = await sendCommand('region_put', { name, parent });
-      setOutput('region-output', d?.payload?.reply || JSON.stringify(d?.payload));
-      e.target.reset();
+    const fd   = new FormData(e.target);
+    const name  = fd.get('name')?.trim();
+    const parent = fd.get('parent')?.trim() || '';
+    const flood  = fd.get('flood') === 'on';
+    if (!name) return;
+    setRegionStatus(`Creating ${name}…`);
+    const d = await sendCommand('region_put', { name, parent });
+    if (d?.ok) {
+      await sendCommand(flood ? 'region_allowf' : 'region_denyf', { name });
     }
+    setRegionStatus(d?.payload?.reply || (d?.error ? `Error: ${d.error}` : `Region ${name} created`));
+    e.target.reset();
+    document.getElementById('region-add-form').style.display = 'none';
+    await refreshRegions();
   });
-  document.getElementById('region-remove-form')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const name = new FormData(e.target).get('name')?.trim();
-    if (name) {
-      const d = await sendCommand('region_remove', { name });
-      setOutput('region-output', d?.payload?.reply || JSON.stringify(d?.payload));
-      e.target.reset();
-    }
+
+  // Add child (pre-fills parent dropdown)
+  document.getElementById('btn-region-add-child')?.addEventListener('click', () => {
+    const f = document.getElementById('region-add-form');
+    if (f) f.style.display = '';
+    const sel = document.getElementById('region-parent-select');
+    if (sel && app_selectedRegion) sel.value = app_selectedRegion;
   });
-  document.getElementById('region-flag-form')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const mode = fd.get('mode'), name = fd.get('name')?.trim();
-    if (name) {
-      const cmd = mode === 'denyf' ? 'region_denyf' : 'region_allowf';
-      const d = await sendCommand(cmd, { name });
-      setOutput('region-output', d?.payload?.reply || JSON.stringify(d?.payload));
-      e.target.reset();
-    }
+
+  // Action buttons
+  document.getElementById('btn-region-set-home')?.addEventListener('click', async () => {
+    if (!app_selectedRegion) return;
+    const d = await sendCommand('region_home_set', { name: app_selectedRegion });
+    setRegionStatus(d?.payload?.reply || `Home set to ${app_selectedRegion}`);
+    const homeEl = document.getElementById('region-home-display');
+    if (homeEl) homeEl.textContent = app_selectedRegion;
+    await refreshRegions();
   });
-  document.getElementById('region-get-form')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const name = new FormData(e.target).get('name')?.trim();
-    if (name) {
-      const d = await sendCommand('region_get', { name });
-      setOutput('region-output', d?.payload?.reply || JSON.stringify(d?.payload));
-    }
+  document.getElementById('btn-region-allowf')?.addEventListener('click', async () => {
+    if (!app_selectedRegion) return;
+    const d = await sendCommand('region_allowf', { name: app_selectedRegion });
+    setRegionStatus(d?.payload?.reply || `Flood allowed: ${app_selectedRegion}`);
+    await refreshRegions();
   });
-  document.getElementById('region-load-form')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const name = fd.get('name')?.trim(), flood = fd.get('flood') === 'on' ? 'F' : '';
-    if (name) {
-      const d = await sendCommand('region_load_named', { name, flood_flag: flood });
-      setOutput('region-output', d?.payload?.reply || JSON.stringify(d?.payload));
-      e.target.reset();
-    }
+  document.getElementById('btn-region-denyf')?.addEventListener('click', async () => {
+    if (!app_selectedRegion) return;
+    const d = await sendCommand('region_denyf', { name: app_selectedRegion });
+    setRegionStatus(d?.payload?.reply || `Flood denied: ${app_selectedRegion}`);
+    await refreshRegions();
   });
+  document.getElementById('btn-region-remove')?.addEventListener('click', async () => {
+    if (!app_selectedRegion) return;
+    if (!confirm(`Remove region "${app_selectedRegion}"?\n(Must be a leaf node with no children)`)) return;
+    const d = await sendCommand('region_remove', { name: app_selectedRegion });
+    setRegionStatus(d?.payload?.reply || `Removed: ${app_selectedRegion}`);
+    app_selectedRegion = null;
+    const ph = document.getElementById('region-detail-placeholder');
+    const ct = document.getElementById('region-detail-content');
+    if (ph) ph.style.display = '';
+    if (ct) ct.style.display = 'none';
+    await refreshRegions();
+  });
+
+  // Quick preset buttons
+  const REGION_PRESETS = {
+    wildcard_flood: [['region_load_named', { name: '*',             flood_flag: 'F' }]],
+    wildcard_only:  [['region_load_named', { name: '*',             flood_flag: ''  }]],
+    europe:   [
+      ['region_load_named', { name: '#Europe',       flood_flag: 'F' }],
+      ['region_put',        { name: '#UK',     parent: '#Europe'       }],
+      ['region_put',        { name: '#France', parent: '#Europe'       }],
+    ],
+    americas: [
+      ['region_load_named', { name: '#NorthAmerica', flood_flag: 'F' }],
+      ['region_put',        { name: '#USA',    parent: '#NorthAmerica' }],
+      ['region_put',        { name: '#Canada', parent: '#NorthAmerica' }],
+    ],
+    apac: [
+      ['region_load_named', { name: '#AsiaPacific',  flood_flag: 'F' }],
+      ['region_put',        { name: '#Australia', parent: '#AsiaPacific' }],
+      ['region_put',        { name: '#Japan',     parent: '#AsiaPacific' }],
+    ],
+  };
+  document.querySelectorAll('.region-preset-btn').forEach(btn =>
+    btn.addEventListener('click', async () => {
+      const preset = REGION_PRESETS[btn.dataset.preset];
+      if (!preset) return;
+      if (!confirm(`Load preset "${btn.dataset.preset}"?\nThis will overwrite current region configuration.`)) return;
+      setRegionStatus('Loading preset…');
+      for (const [cmd, args] of preset) await sendCommand(cmd, args);
+      setRegionStatus('Preset loaded. Click Save to persist.');
+      await refreshRegions();
+    })
+  );
 
   // Raw CLI form
   document.getElementById('raw-form')?.addEventListener('submit', async e => {

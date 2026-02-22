@@ -218,85 +218,85 @@
               <div id="config-output" class="mono-box mt-8"></div>
             </div>
 
-            <!-- Region routing panel (redesigned compact visual) -->
-            <div class="panel cfg-right">
+            <!-- Region routing panel (interactive tree manager) -->
+            <div class="panel cfg-right" id="region-panel">
               <div class="panel-header">
                 <h2>&#127758; Region Routing</h2>
                 <div class="inline-actions">
-                  <button id="refresh-regions-btn" class="btn-sm">↻ Refresh</button>
+                  <button id="refresh-regions-btn" class="btn-sm">&#8635; Refresh</button>
+                  <button id="save-regions-btn" class="btn-ok">&#10003; Save</button>
                 </div>
               </div>
 
-              <!-- Live region tree display -->
-              <div id="region-tree" class="region-tree-wrap"></div>
-              <div id="region-output" class="mono-box" style="min-height:0;max-height:80px;margin-bottom:10px;display:none"></div>
+              <!-- Home region bar -->
+              <div class="region-home-bar">
+                <span class="region-home-label">&#127968; Home:</span>
+                <span id="region-home-display" class="region-home-value">–</span>
+              </div>
 
-              <!-- Home region -->
-              <div class="region-card">
-                <div class="region-card-icon">&#127968;</div>
-                <div class="region-card-body">
-                  <div class="region-card-title">Home Region</div>
-                  <p class="form-hint">Accept packets arriving in this region (use <code>#Name</code>)</p>
-                  <form id="region-home-form" class="row-form">
-                    <input name="name" placeholder="e.g. #Europe" />
-                    <button type="submit" class="btn-ok">Set</button>
-                  </form>
+              <!-- Main tree + detail split -->
+              <div class="region-manager">
+                <!-- Left: interactive tree -->
+                <div class="region-tree-panel">
+                  <div class="region-tree-header">
+                    <span class="region-tree-title">Region Tree</span>
+                    <button id="btn-region-add-open" class="btn-sm">+ Add</button>
+                  </div>
+                  <div id="region-tree-list" class="region-tree-list">
+                    <div class="region-tree-empty">Click &#8635; Refresh to load regions</div>
+                  </div>
+                </div>
+
+                <!-- Right: selected region actions -->
+                <div class="region-detail-panel" id="region-detail-panel">
+                  <div class="region-detail-placeholder" id="region-detail-placeholder">
+                    <div style="font-size:24px;margin-bottom:6px">&#128205;</div>
+                    <div>Select a region<br><small>Click any region in the tree</small></div>
+                  </div>
+                  <div id="region-detail-content" style="display:none">
+                    <div class="region-detail-name" id="region-detail-name"></div>
+                    <div class="region-detail-meta" id="region-detail-meta"></div>
+                    <div class="region-action-group">
+                      <button id="btn-region-set-home"  class="btn-ok region-action-btn">&#127968; Set as Home</button>
+                      <button id="btn-region-allowf"    class="btn-ok region-action-btn">&#9989; Allow Flood</button>
+                      <button id="btn-region-denyf"     class="btn-warn region-action-btn">&#128683; Deny Flood</button>
+                      <button id="btn-region-add-child" class="region-action-btn">&#10133; Add Child Region</button>
+                      <button id="btn-region-remove"    class="btn-err region-action-btn">&#128465; Remove Region</button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <!-- Create / remove region -->
-              <div class="region-card">
-                <div class="region-card-icon">&#128193;</div>
-                <div class="region-card-body">
-                  <div class="region-card-title">Add / Remove Region</div>
-                  <form id="region-put-form" class="row-form-3 mb-6">
-                    <input name="name"   placeholder="New region" />
-                    <input name="parent" placeholder="Parent (optional)" />
-                    <button type="submit" class="btn-ok">+ Add</button>
-                  </form>
-                  <form id="region-remove-form" class="row-form">
-                    <input name="name" placeholder="Region to remove" />
-                    <button type="submit" class="btn-err">&#10005; Remove</button>
-                  </form>
+              <!-- Add region form (shown/hidden) -->
+              <div class="region-add-form" id="region-add-form" style="display:none">
+                <div class="region-add-header">
+                  <strong>Add Region</strong>
+                  <button id="btn-region-add-cancel" class="btn-sm">&#10005;</button>
+                </div>
+                <form id="region-put-form" class="region-add-inputs">
+                  <input name="name" placeholder="#RegionName" autocomplete="off" />
+                  <select name="parent" id="region-parent-select">
+                    <option value="">* (root)</option>
+                  </select>
+                  <label class="flag-checkbox"><input type="checkbox" name="flood" /> Flood</label>
+                  <button type="submit" class="btn-ok">Create</button>
+                </form>
+              </div>
+
+              <!-- Quick presets -->
+              <div class="region-presets">
+                <div class="region-presets-title">&#9889; Quick Presets</div>
+                <div class="region-preset-pills">
+                  <button class="region-preset-btn" data-preset="wildcard_flood" title="* F — accept &amp; flood all">&#127757; All + Flood</button>
+                  <button class="region-preset-btn" data-preset="wildcard_only"  title="* — accept all, no flood">&#127757; Wildcard</button>
+                  <button class="region-preset-btn" data-preset="europe"   title="#Europe F with #UK and #France">&#127466;&#127482; Europe</button>
+                  <button class="region-preset-btn" data-preset="americas" title="#NorthAmerica F with #USA and #Canada">&#127462;&#127474; Americas</button>
+                  <button class="region-preset-btn" data-preset="apac"     title="#AsiaPacific F with #Australia and #Japan">&#127462;&#127477; Asia-Pacific</button>
                 </div>
               </div>
 
-              <!-- Flood policy -->
-              <div class="region-card">
-                <div class="region-card-icon">&#128225;</div>
-                <div class="region-card-body">
-                  <div class="region-card-title">Flood Policy</div>
-                  <form id="region-flag-form" class="row-form-3">
-                    <select name="mode">
-                      <option value="allowf">&#9989; Allow Flood</option>
-                      <option value="denyf">&#128683; Deny Flood</option>
-                    </select>
-                    <input name="name" placeholder="Region name" />
-                    <button type="submit">Apply</button>
-                  </form>
-                </div>
-              </div>
-
-              <!-- Inspect / load preset -->
-              <div class="region-card">
-                <div class="region-card-icon">&#128269;</div>
-                <div class="region-card-body">
-                  <div class="region-card-title">Inspect / Load Preset</div>
-                  <form id="region-get-form" class="row-form mb-6">
-                    <input name="name" placeholder="Region name" />
-                    <button type="submit">Inspect</button>
-                  </form>
-                  <form id="region-load-form" class="row-form-3">
-                    <input name="name" placeholder="Preset name" />
-                    <label class="flag-checkbox"><input type="checkbox" name="flood" /> Flood</label>
-                    <button type="submit" class="btn-ok">Load</button>
-                  </form>
-                </div>
-              </div>
-
-              <div style="margin-top:12px">
-                <button id="save-regions-btn" class="btn-ok" style="width:100%">&#10003; Save All Region Changes</button>
-              </div>
+              <!-- Status line -->
+              <div id="region-status" class="region-status-bar"></div>
 
             </div><!-- /cfg-right -->
 

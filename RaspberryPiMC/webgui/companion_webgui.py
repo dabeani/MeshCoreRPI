@@ -167,6 +167,7 @@ class MeshState:
         self.contacts: dict[str, Contact] = {}
         self.channels: list[dict[str, Any]] = []  # index 0-7, each: {index, name, active}
         self.messages: list[dict[str, Any]] = []  # received channel+contact messages
+        self.regions: list[dict[str, Any]] = []   # parsed [{name, parent, flood, home}]
         self.events: list[dict[str, Any]] = []
         self.history: dict[str, list[float | int]] = {
             "ts": [],
@@ -254,6 +255,7 @@ class MeshState:
                 "contacts": contacts,
                 "channels": list(self.channels),
                 "messages": list(self.messages[-300:]),
+                "regions": list(self.regions),
                 "events": list(self.events[-100:]),
                 "history": {k: list(v) for k, v in self.history.items()},
             }
@@ -1299,6 +1301,41 @@ class App:
         if name == "regions_denied":
             reply = self.client.send_cli_command("region list denied")
             return {"reply": reply}
+
+        if name == "region_refresh_full":
+            home_reply = self.client.send_cli_command("region home")
+            home = re.sub(r'home\s+is\s*', '', home_reply, flags=re.IGNORECASE).strip()
+
+            allowed_str = self.client.send_cli_command("region list allowed")
+            denied_str  = self.client.send_cli_command("region list denied")
+
+            _bad = {"", "-none-", "err", "error"}
+            allowed_names = [n.strip() for n in allowed_str.split() if n.strip().lower() not in _bad]
+            denied_names  = [n.strip() for n in denied_str.split()  if n.strip().lower() not in _bad]
+            flood_set = set(allowed_names)
+            seen: dict[str, None] = {}
+            for n in allowed_names + denied_names:
+                seen[n] = None
+            all_names = list(seen.keys())
+
+            regions: list[dict[str, Any]] = []
+            for rname in all_names:
+                info = self.client.send_cli_command(f"region get {rname}")
+                parent: str | None = None
+                m = re.search(r'\(([^)]+)\)', info)
+                if m:
+                    parent = m.group(1).strip()
+                regions.append({
+                    "name": rname,
+                    "parent": parent,
+                    "flood": rname in flood_set,
+                    "home": rname == home,
+                })
+
+            with self.state._lock:
+                self.state.regions = regions
+            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+            return {"home": home, "regions": regions}
 
         if name == "set_mode":
             mode = str(args.get("mode", "forward")).strip().lower()
