@@ -451,6 +451,7 @@ class CompanionClient:
             "sender": sender, "text": text[:80], "path_len": path_len, "snr": snr,
         })
 
+    def _parse_contact(self, payload: bytes) -> None:
         if len(payload) < 148:
             return
         pubkey_raw = payload[1:33]
