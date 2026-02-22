@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <CayenneLPP.h>
+#include <sensors/LocationProvider.h>
 
 #define TELEM_PERM_BASE         0x01
 #define TELEM_PERM_LOCATION     0x02
@@ -18,15 +19,27 @@ public:
   double node_lon = 0.0;
   double node_altitude = 0.0;
 
-  bool begin() { return false; }
-  void loop() {}
+  virtual bool begin() { return false; }
+  virtual void loop() {}
 
-  bool querySensors(uint8_t, CayenneLPP&) { return false; }
+  virtual bool querySensors(uint8_t, CayenneLPP&) { return false; }
 
-  int getNumSettings() const { return 0; }
-  const char* getSettingName(int) const { return ""; }
-  const char* getSettingValue(int) const { return ""; }
-  bool setSettingValue(const char*, const char*) { return false; }
+  virtual int getNumSettings() const { return 0; }
+  virtual const char* getSettingName(int) const { return nullptr; }
+  virtual const char* getSettingValue(int) const { return nullptr; }
+  virtual bool setSettingValue(const char*, const char*) { return false; }
+  virtual LocationProvider* getLocationProvider() { return nullptr; }
+
+  const char* getSettingByKey(const char* key) {
+    const int num = getNumSettings();
+    for (int i = 0; i < num; i++) {
+      const char* name = getSettingName(i);
+      if (name && key && std::strcmp(name, key) == 0) {
+        return getSettingValue(i);
+      }
+    }
+    return nullptr;
+  }
 
   const char* getSettingByKey(const char* key) const {
     const int num = getNumSettings();

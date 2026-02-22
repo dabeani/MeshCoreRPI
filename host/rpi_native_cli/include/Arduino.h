@@ -91,13 +91,15 @@ inline T constrain(T value, A min_v, B max_v) {
 }
 
 template <typename A, typename B>
-inline auto min(A a, B b) -> decltype(a < b ? a : b) {
-  return a < b ? a : b;
+inline auto min(A a, B b) -> typename std::common_type<A, B>::type {
+  using R = typename std::common_type<A, B>::type;
+  return (a < b) ? static_cast<R>(a) : static_cast<R>(b);
 }
 
 template <typename A, typename B>
-inline auto max(A a, B b) -> decltype(a > b ? a : b) {
-  return a > b ? a : b;
+inline auto max(A a, B b) -> typename std::common_type<A, B>::type {
+  using R = typename std::common_type<A, B>::type;
+  return (a > b) ? static_cast<R>(a) : static_cast<R>(b);
 }
 
 class LinuxSerial : public Stream {

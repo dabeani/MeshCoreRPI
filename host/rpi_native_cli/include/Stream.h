@@ -74,6 +74,11 @@ public:
 	size_t println() { return write("\n"); }
 	size_t println(const char* s) { return print(s) + println(); }
 
+	template <typename T>
+	size_t println(const T& v) {
+		return print(v) + println();
+	}
+
 	int printf(const char* fmt, ...) {
 		va_list args;
 		va_start(args, fmt);

@@ -42,6 +42,17 @@ public:
     return static_cast<size_t>(stream->gcount());
   }
 
+  int available() override {
+    if (!stream || !stream->is_open()) return 0;
+    std::error_code ec;
+    const auto total = static_cast<std::streamoff>(std::filesystem::file_size(path_, ec));
+    if (ec) return 0;
+    const std::streamoff pos = stream->tellg();
+    if (pos < 0) return 0;
+    const std::streamoff rem = total - pos;
+    return rem > 0 ? static_cast<int>(rem) : 0;
+  }
+
   int read() override {
     if (!stream || !stream->is_open()) return -1;
     return stream->get();

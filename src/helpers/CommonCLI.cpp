@@ -185,7 +185,14 @@ uint8_t CommonCLI::buildAdvertData(uint8_t node_type, uint8_t* app_data) {
     AdvertDataBuilder builder(node_type, _prefs->node_name);
     return builder.encodeTo(app_data);
   } else if (_prefs->advert_loc_policy == ADVERT_LOC_SHARE) {
-    AdvertDataBuilder builder(node_type, _prefs->node_name, _sensors->node_lat, _sensors->node_lon);
+    LocationProvider* loc = _sensors->getLocationProvider();
+    if (loc != NULL && loc->isValid()) {
+      AdvertDataBuilder builder(node_type, _prefs->node_name, _sensors->node_lat, _sensors->node_lon);
+      return builder.encodeTo(app_data);
+    }
+    // Native/sensorless targets: fallback to configured prefs location when
+    // sharing live GPS is requested but no valid GPS fix/provider exists.
+    AdvertDataBuilder builder(node_type, _prefs->node_name, _prefs->node_lat, _prefs->node_lon);
     return builder.encodeTo(app_data);
   } else {
     AdvertDataBuilder builder(node_type, _prefs->node_name, _prefs->node_lat, _prefs->node_lon);
@@ -494,11 +501,13 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       } else if (memcmp(config, "lat ", 4) == 0) {
         _prefs->node_lat = atof(&config[4]);
         savePrefs();
-        strcpy(reply, "OK");
+        _callbacks->sendSelfAdvertisement(1200, false);
+        strcpy(reply, "OK - lat set, advert queued");
       } else if (memcmp(config, "lon ", 4) == 0) {
         _prefs->node_lon = atof(&config[4]);
         savePrefs();
-        strcpy(reply, "OK");
+        _callbacks->sendSelfAdvertisement(1200, false);
+        strcpy(reply, "OK - lon set, advert queued");
       } else if (memcmp(config, "rxdelay ", 8) == 0) {
         float db = atof(&config[8]);
         if (db >= 0) {
@@ -683,47 +692,45 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       if (_sensors->setSettingValue("gps", "0")) {
         _prefs->gps_enabled = 0;
         savePrefs();
-        strcpy(reply, "ok");
-      } else {
+         strcpy(reply, "ok");
         strcpy(reply, "gps toggle not found");
       }
     } else if (memcmp(command, "gps sync", 8) == 0) {
-      LocationProvider * l = _sensors->getLocationProvider();
-      if (l != NULL) {
+           strcpy(reply, "ok");
         l->syncTime();
       }
     } else if (memcmp(command, "gps setloc", 10) == 0) {
-      _prefs->node_lat = _sensors->node_lat;
-      _prefs->node_lon = _sensors->node_lon;
+           strcpy(reply, "ok");
       savePrefs();
-      strcpy(reply, "ok");
-    } else if (memcmp(command, "gps advert", 10) == 0) {
-      if (strlen(command) == 10) {
+      _callbacks->sendSelfAdvertisement(1200, false);
+      strcpy(reply, "ok - location set, advert queued");
+           strcpy(reply, "ok");
         switch (_prefs->advert_loc_policy) {
           case ADVERT_LOC_NONE:
             strcpy(reply, "> none");
-            break;
-          case ADVERT_LOC_PREFS:
+           strcpy(reply, "OK");
             strcpy(reply, "> prefs");
             break;
           case ADVERT_LOC_SHARE:
-            strcpy(reply, "> share");
-            break;
+           strcpy(reply, "OK");
           default:
             strcpy(reply, "error");
         }
       } else if (memcmp(command+11, "none", 4) == 0) {
         _prefs->advert_loc_policy = ADVERT_LOC_NONE;
         savePrefs();
-        strcpy(reply, "ok");
+        _callbacks->sendSelfAdvertisement(1200, false);
+        strcpy(reply, "ok - advert mode set, advert queued");
       } else if (memcmp(command+11, "share", 5) == 0) {
         _prefs->advert_loc_policy = ADVERT_LOC_SHARE;
         savePrefs();
-        strcpy(reply, "ok");
+        _callbacks->sendSelfAdvertisement(1200, false);
+        strcpy(reply, "ok - advert mode set, advert queued");
       } else if (memcmp(command+11, "prefs", 4) == 0) {
         _prefs->advert_loc_policy = ADVERT_LOC_PREFS;
         savePrefs();
-        strcpy(reply, "ok");
+        _callbacks->sendSelfAdvertisement(1200, false);
+        strcpy(reply, "ok - advert mode set, advert queued");
       } else {
         strcpy(reply, "error");
       }
