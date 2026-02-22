@@ -278,6 +278,11 @@ body[data-role="repeater"]  .repeater-only  { display: unset; }
 body[data-role="companion"] .companion-only.panel { display: block; }
 body[data-role="companion"] .companion-only.inline-actions { display: flex; }
 body[data-role="repeater"]  .repeater-only.panel { display: block; }
+/* tab-panes that carry a role class must still obey tab visibility rules */
+body[data-role="companion"] .tab-pane.companion-only        { display: none; }
+body[data-role="companion"] .tab-pane.companion-only.active { display: block; }
+body[data-role="repeater"]  .tab-pane.repeater-only         { display: none; }
+body[data-role="repeater"]  .tab-pane.repeater-only.active  { display: block; }
 
 /* ─────────────── Utility ─────────────── */
 .mb-8  { margin-bottom: 8px; }
