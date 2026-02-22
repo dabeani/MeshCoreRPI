@@ -1,6 +1,10 @@
 #include "target.h"
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <random>
+#include <string>
 
 LinuxBoard board;
 
@@ -8,6 +12,161 @@ static SX1262LinuxRadio::Config g_cfg{};
 LinuxRadioDriver radio_driver(g_cfg);
 LinuxRTCClock rtc_clock;
 SensorManager sensors;
+
+namespace {
+
+bool readFileString(const std::filesystem::path& path, std::string& out) {
+  std::ifstream file(path);
+  if (!file.is_open()) {
+    return false;
+  }
+  std::getline(file, out);
+  while (!out.empty() && (out.back() == '\n' || out.back() == '\r' || out.back() == ' ' || out.back() == '\t')) {
+    out.pop_back();
+  }
+  return !out.empty();
+}
+
+bool readFileInt64(const std::filesystem::path& path, int64_t& out) {
+  std::ifstream file(path);
+  if (!file.is_open()) {
+    return false;
+  }
+  file >> out;
+  return !file.fail();
+}
+
+bool isBatterySupply(const std::filesystem::path& dir) {
+  std::string type;
+  return readFileString(dir / "type", type) && type == "Battery";
+}
+
+bool isExternalSupplyType(const std::string& type) {
+  return type == "Mains" || type == "USB" || type == "USB_DCP" ||
+         type == "USB_CDP" || type == "USB_ACA" || type == "USB_PD";
+}
+
+bool getSysfsBatteryMilliVolts(uint16_t& battery_mv) {
+  std::error_code ec;
+  const std::filesystem::path root("/sys/class/power_supply");
+  if (!std::filesystem::exists(root, ec)) {
+    return false;
+  }
+
+  for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
+    if (ec || !entry.is_directory()) {
+      continue;
+    }
+    const auto dir = entry.path();
+    if (!isBatterySupply(dir)) {
+      continue;
+    }
+
+    int64_t microvolts = 0;
+    if (!readFileInt64(dir / "voltage_now", microvolts) && !readFileInt64(dir / "voltage_avg", microvolts)) {
+      continue;
+    }
+    if (microvolts <= 0) {
+      continue;
+    }
+
+    const int64_t mv = microvolts / 1000;
+    if (mv <= 0) {
+      continue;
+    }
+    battery_mv = static_cast<uint16_t>(mv > 65535 ? 65535 : mv);
+    return true;
+  }
+  return false;
+}
+
+bool hasBatterySupply() {
+  std::error_code ec;
+  const std::filesystem::path root("/sys/class/power_supply");
+  if (!std::filesystem::exists(root, ec)) {
+    return false;
+  }
+
+  for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
+    if (ec || !entry.is_directory()) {
+      continue;
+    }
+    if (isBatterySupply(entry.path())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool hasOnlineExternalSupply() {
+  std::error_code ec;
+  const std::filesystem::path root("/sys/class/power_supply");
+  if (!std::filesystem::exists(root, ec)) {
+    return false;
+  }
+
+  for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
+    if (ec || !entry.is_directory()) {
+      continue;
+    }
+
+    std::string type;
+    if (!readFileString(entry.path() / "type", type) || !isExternalSupplyType(type)) {
+      continue;
+    }
+
+    int64_t online = 0;
+    if (readFileInt64(entry.path() / "online", online) && online > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool getThermalZone0Celsius(float& out_temp_c) {
+  int64_t milli_c = 0;
+  if (!readFileInt64("/sys/class/thermal/thermal_zone0/temp", milli_c)) {
+    return false;
+  }
+  out_temp_c = static_cast<float>(milli_c) / 1000.0f;
+  return true;
+}
+
+}
+
+void LinuxBoard::begin() {
+  boot_voltage_mv = getBattMilliVolts();
+}
+
+uint16_t LinuxBoard::getBattMilliVolts() {
+  uint16_t measured_mv = 0;
+  if (getSysfsBatteryMilliVolts(measured_mv)) {
+    return measured_mv;
+  }
+  return boot_voltage_mv > 0 ? boot_voltage_mv : 5000;
+}
+
+float LinuxBoard::getMCUTemperature() {
+  float temp_c = NAN;
+  if (getThermalZone0Celsius(temp_c)) {
+    return temp_c;
+  }
+  return 25.0f;
+}
+
+void LinuxBoard::reboot() {
+  std::exit(0);
+}
+
+bool LinuxBoard::isExternalPowered() {
+  if (hasOnlineExternalSupply()) {
+    return true;
+  }
+  if (hasBatterySupply()) {
+    return false;
+  }
+  return true;
+}
 
 void LinuxRadioDriver::setRuntimeRadio(float freq, float bw, uint8_t sf, uint8_t cr, int8_t tx) {
   Config cfg = g_cfg;

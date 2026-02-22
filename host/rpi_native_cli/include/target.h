@@ -9,15 +9,23 @@
 #define RP2040_PLATFORM 1
 
 class LinuxBoard : public mesh::MainBoard {
+  uint16_t boot_voltage_mv = 5000;
+
 public:
-  void begin() {}
-  uint16_t getBattMilliVolts() override { return 5000; }
-  float getMCUTemperature() override { return 25.0f; }
+  void begin();
+  uint16_t getBattMilliVolts() override;
+  float getMCUTemperature() override;
   bool setAdcMultiplier(float) override { return true; }
   float getAdcMultiplier() const override { return 1.0f; }
   const char* getManufacturerName() const override { return "RaspberryPi"; }
-  void reboot() override {}
+  void reboot() override;
   uint8_t getStartupReason() const override { return BD_STARTUP_NORMAL; }
+  bool isExternalPowered() override;
+  uint16_t getBootVoltage() override { return boot_voltage_mv; }
+  uint32_t getResetReason() const override { return 0; }
+  const char* getResetReasonString(uint32_t) override { return "Host start"; }
+  uint8_t getShutdownReason() const override { return 0; }
+  const char* getShutdownReasonString(uint8_t) override { return "Not available"; }
 };
 
 class LinuxRTCClock : public VolatileRTCClock {

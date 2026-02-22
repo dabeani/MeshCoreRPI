@@ -17,6 +17,13 @@
 
 using std::size_t;
 
+namespace arduino_detail {
+inline std::mt19937& global_rng() {
+  static std::mt19937 rng{std::random_device{}()};
+  return rng;
+}
+}
+
 inline unsigned long millis() {
   static const auto start = std::chrono::steady_clock::now();
   const auto now = std::chrono::steady_clock::now();
@@ -38,22 +45,19 @@ inline void delay(unsigned long ms) {
 }
 
 inline long random(long max_v) {
-  static std::mt19937 rng{std::random_device{}()};
   if (max_v <= 0) return 0;
   std::uniform_int_distribution<long> dist(0, max_v - 1);
-  return dist(rng);
+  return dist(arduino_detail::global_rng());
 }
 
 inline long random(long min_v, long max_v) {
   if (max_v <= min_v) return min_v;
-  static std::mt19937 rng{std::random_device{}()};
   std::uniform_int_distribution<long> dist(min_v, max_v - 1);
-  return dist(rng);
+  return dist(arduino_detail::global_rng());
 }
 
 inline void randomSeed(unsigned long seed) {
-  static std::mt19937 rng{std::random_device{}()};
-  rng.seed(seed);
+  arduino_detail::global_rng().seed(seed);
 }
 
 inline char* ltoa(long value, char* str, int base) {
