@@ -5,6 +5,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 class Stream {
 public:
@@ -82,7 +83,20 @@ public:
 	int printf(const char* fmt, ...) {
 		va_list args;
 		va_start(args, fmt);
-		int n = vprintf(fmt, args);
+		va_list args_copy;
+		va_copy(args_copy, args);
+		const int needed = std::vsnprintf(nullptr, 0, fmt, args_copy);
+		va_end(args_copy);
+		if (needed <= 0) {
+			va_end(args);
+			return needed;
+		}
+
+		std::vector<char> buf(static_cast<size_t>(needed) + 1);
+		const int n = std::vsnprintf(buf.data(), buf.size(), fmt, args);
+		if (n > 0) {
+			write(reinterpret_cast<const uint8_t*>(buf.data()), static_cast<size_t>(n));
+		}
 		va_end(args);
 		return n;
 	}
