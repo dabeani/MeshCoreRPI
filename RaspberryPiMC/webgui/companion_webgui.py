@@ -1134,7 +1134,7 @@ class App:
             with self.state._lock:
                 self.state.messages.append(out_msg)
                 self.client._pending_ack_ids.append(msg_id)
-            self.state.add_event("dm_sent", {"recipient": contact_name, "text": text_raw.decode("utf-8", errors="replace")[:60]})
+            self.state.add_event("dm_sent", {"recipient": contact_name, "pubkey_prefix": pubkey_hex[:12], "text": text_raw.decode("utf-8", errors="replace")[:60]})
             self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             return {"pubkey_prefix": pubkey_hex[:12], "bytes": len(text_raw)}
 

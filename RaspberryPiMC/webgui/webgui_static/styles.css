@@ -304,7 +304,17 @@ body[data-role="repeater"]  .tab-pane.repeater-only.active  { display: block; }
 .leaflet-bar a:hover { background: var(--bg2); }
 
 /* ─────────────── Map marker custom ─────────────── */
-.mc-icon { background: transparent; border: none; }
+.mc-icon { background: transparent; border: none; overflow: visible; }
+
+@keyframes mc-ping-anim {
+  0%   { box-shadow: 0 0 0 0    rgba(88,166,255,.9); }
+  70%  { box-shadow: 0 0 0 12px rgba(88,166,255,.2); }
+  100% { box-shadow: 0 0 0 20px rgba(88,166,255,0);  }
+}
+.mc-icon.mc-ping {
+  animation: mc-ping-anim 1.3s ease-out;
+  z-index: 1000 !important;
+}
 .mc-icon-self {
   width: 20px; height: 20px; border-radius: 50%;
   background: radial-gradient(circle, #8ac4ff 20%, #3a80e8 100%);

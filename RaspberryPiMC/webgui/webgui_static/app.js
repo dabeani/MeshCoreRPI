@@ -15,6 +15,7 @@ const app = {
   activeChannel: null,       // currently selected channel index (number|null)
   unreadChannels: new Set(), // channel indices with unread messages
   lastMsgCount: 0,           // track when new messages arrive
+  lastPingTs: 0,             // ts of last event processed for map pings
   chMsgCounts: {},           // channel_idx -> last rendered message count
   chScrollPos: {},           // channel_idx -> last saved scrollTop when visible
   chEverViewed: {},          // channel_idx -> bool: has user ever opened this channel
@@ -35,6 +36,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
 }).addTo(mcMap);
 const lineLayer   = L.layerGroup().addTo(mcMap);  // paths drawn below markers
 const markerLayer = L.layerGroup().addTo(mcMap);
+const markerByPubkey = {};  // pubkey hex -> Leaflet marker (for map pings)
 
 function markerIconForKind(kind, isSelf) {
   if (isSelf) return L.divIcon({ className: 'mc-icon mc-icon-self',     iconSize: [20, 20], iconAnchor: [10, 10] });
@@ -198,9 +200,22 @@ function renderStatCards(snap) {
 }
 
 // ─── Map Update ──────────────────────────────────────
+function pingMarker(pubkeyOrPrefix) {
+  const prefix = (pubkeyOrPrefix || '').slice(0, 12);
+  const key = Object.keys(markerByPubkey).find(k => k.startsWith(prefix));
+  if (!key) return;
+  const icon = markerByPubkey[key]._icon;
+  if (!icon) return;
+  icon.classList.remove('mc-ping'); // restart if already animating
+  void icon.offsetWidth;            // force reflow
+  icon.classList.add('mc-ping');
+  setTimeout(() => icon.classList.remove('mc-ping'), 1400);
+}
+
 function updateMap(snap) {
   markerLayer.clearLayers();
   lineLayer.clearLayers();
+  Object.keys(markerByPubkey).forEach(k => delete markerByPubkey[k]);
   const bounds = [];
 
   // Self node — lower threshold so even ~10m GPS drift shows
@@ -243,6 +258,7 @@ function updateMap(snap) {
       { autoClose: false, closeOnClick: false }
     );
     m.addTo(markerLayer);
+    markerByPubkey[c.pubkey] = m;
     bounds.push([c.lat, c.lon]);
 
     // Draw path polyline from self to contact (only when we know self pos)
@@ -547,7 +563,7 @@ function renderLog(events, filter = '') {
     if (catFilter === 'all')    return true;
     if (catFilter === 'pkt')    return type === 'pkt_rx' || type === 'pkt_tx';
     if (catFilter === 'advert') return type === 'rx_advert' || type === 'neighbor_new';
-    if (catFilter === 'msgs')   return type === 'chan_msg' || type === 'contact_msg' || type === 'chan_msg_sent';
+    if (catFilter === 'msgs')   return type === 'chan_msg' || type === 'contact_msg' || type === 'chan_msg_sent' || type === 'dm_sent';
     if (catFilter === 'system') return /^(connected|error|reboot|config_set|config_save|self_info|command|region_home|region_put|region_remove|region_allowf|region_denyf|region_load|region_get)$/.test(type);
     return true;
   };
@@ -621,6 +637,9 @@ function renderLog(events, filter = '') {
       }
       case 'chan_msg_sent': {
         return `\u2191 Sent to [${p.channel || '?'}]: ${(p.text||'').slice(0,60)}`;
+      }
+      case 'dm_sent': {
+        return `\u2191 DM to ${p.recipient || '?'}: ${(p.text||'').slice(0,60)}`;
       }
       case 'contact_msg': {
         const snrStr = p.snr != null ? ` · SNR ${p.snr} dB` : '';
@@ -1114,6 +1133,7 @@ function selectRegion(name) {
 
 // ─── Full Render ─────────────────────────────────────
 function renderAll(snap) {
+  const prevSnap = app.snap;
   app.snap = snap;
   const role = snap.role || 'companion';
 
@@ -1132,6 +1152,25 @@ function renderAll(snap) {
 
   // Map (always update, even when on another tab — markers are fast)
   updateMap(snap);
+
+  // ── Map pings ──────────────────────────────────────────────────────
+  // Ping markers for contacts whose advert timestamp just advanced
+  if (prevSnap) {
+    const prevTs = {};
+    (prevSnap.contacts || []).forEach(c => { prevTs[c.pubkey] = c.last_advert_timestamp; });
+    (snap.contacts || []).forEach(c => {
+      if (c.last_advert_timestamp > (prevTs[c.pubkey] || 0)) pingMarker(c.pubkey);
+    });
+  }
+  // Ping markers for fresh contact messages / outbound DMs
+  const nowSec = Math.floor(Date.now() / 1000);
+  (snap.events || []).forEach(ev => {
+    if (ev.ts <= app.lastPingTs || ev.ts < nowSec - 10) return;
+    if (ev.type === 'contact_msg' && ev.payload?.pubkey_prefix) pingMarker(ev.payload.pubkey_prefix);
+    if (ev.type === 'dm_sent'    && ev.payload?.pubkey_prefix) pingMarker(ev.payload.pubkey_prefix);
+  });
+  app.lastPingTs = (snap.events || []).reduce((max, e) => e.ts > max ? e.ts : max, app.lastPingTs);
+  // ───────────────────────────────────────────────────────────────────
 
   // System charts (dashboard side panel — CPU/RAM over time)
   renderSystemCharts(snap);
