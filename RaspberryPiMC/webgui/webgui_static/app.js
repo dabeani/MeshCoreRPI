@@ -15,6 +15,9 @@ const app = {
   activeChannel: null,       // currently selected channel index (number|null)
   unreadChannels: new Set(), // channel indices with unread messages
   lastMsgCount: 0,           // track when new messages arrive
+  chMsgCounts: {},           // channel_idx -> last rendered message count
+  chScrollPos: {},           // channel_idx -> last saved scrollTop when visible
+  chEverViewed: {},          // channel_idx -> bool: has user ever opened this channel
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
@@ -715,11 +718,22 @@ function renderChannels(snap) {
 
   if (!chMsgs.length) {
     msgArea.innerHTML = `<div class="ch-empty"><div class="ch-empty-icon">&#128172;</div>No messages yet.<br><small>Messages will appear here as they arrive.</small></div>`;
+    app.chMsgCounts[app.activeChannel] = 0;
     return;
   }
 
-  // Check if already scrolled to bottom before re-render
-  const wasAtBottom = msgArea.scrollTop + msgArea.clientHeight >= msgArea.scrollHeight - 20;
+  const prevCount = app.chMsgCounts[app.activeChannel] ?? -1;
+  const gotNewMsgs = chMsgs.length > prevCount;
+  // offsetHeight > 0 means the element is actually rendered and visible
+  const isVisible = msgArea.offsetHeight > 0;
+
+  // While visible: snapshot scroll state before replacing DOM
+  let wasAtBottom = false;
+  if (isVisible) {
+    const scrollable = Math.max(msgArea.scrollHeight - msgArea.clientHeight, 0);
+    wasAtBottom = msgArea.scrollTop >= scrollable - 20;
+    app.chScrollPos[app.activeChannel] = msgArea.scrollTop;
+  }
 
   msgArea.innerHTML = chMsgs.map(m => {
     const dir = m.outbound ? 'outbound' : 'inbound';
@@ -737,9 +751,20 @@ function renderChannels(snap) {
     </div>`;
   }).join('');
 
-  if (wasAtBottom) {
-    msgArea.scrollTop = msgArea.scrollHeight;
+  app.chMsgCounts[app.activeChannel] = chMsgs.length;
+
+  if (isVisible) {
+    const firstView = !app.chEverViewed[app.activeChannel];
+    app.chEverViewed[app.activeChannel] = true;
+    if (firstView || (gotNewMsgs && wasAtBottom)) {
+      // First time opening this channel, or new message arrived while user was at bottom
+      msgArea.scrollTop = msgArea.scrollHeight;
+    } else {
+      // Restore position the user was at before the DOM was replaced
+      msgArea.scrollTop = app.chScrollPos[app.activeChannel] ?? 0;
+    }
   }
+  // When not visible (background update): don't touch scroll at all
 }
 
 // Helper: escape HTML special characters
