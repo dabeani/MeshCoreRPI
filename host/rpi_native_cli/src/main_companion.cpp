@@ -12,6 +12,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cctype>
+#include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -75,6 +76,52 @@ void preloadRoleConfigEnv() {
     return;
   }
   loadEnvFileDefaults("/etc/raspberrypimc/companion.env");
+}
+
+void printStartupRadioInfo(int tcp_port) {
+  const auto cfg = radio_driver.getConfig();
+  std::cout << "startup-config: "
+            << "driver=" << radio_driver.getDriverName()
+            << " tcp_port=" << tcp_port
+            << " freq_hz=" << cfg.frequency_hz
+            << " bw_hz=" << cfg.bandwidth_hz
+            << " sf=" << cfg.spreading_factor
+            << " cr=" << cfg.coding_rate
+            << " tx_dbm=" << cfg.tx_power_dbm
+            << " spi_prefix=" << cfg.spi_dev_prefix
+            << " spi_bus=" << cfg.spi_bus
+            << " spi_cs=" << cfg.spi_cs
+            << " spi_speed_hz=" << cfg.spi_speed_hz
+            << " cs_pin=" << cfg.cs_pin
+            << " reset_pin=" << cfg.reset_pin
+            << " busy_pin=" << cfg.busy_pin
+            << " irq_pin=" << cfg.irq_pin
+            << " txen_pin=" << cfg.txen_pin
+            << " rxen_pin=" << cfg.rxen_pin
+            << " tcxo=" << (cfg.use_dio3_tcxo ? 1 : 0)
+            << " dio2_rf=" << (cfg.use_dio2_rf_switch ? 1 : 0)
+            << "\n";
+
+  const uint8_t st = radio_driver.debugGetStatus();
+  const uint16_t irq = radio_driver.debugGetIrqStatus();
+  const uint16_t errs = radio_driver.debugGetDeviceErrors();
+
+  char diag[700]{};
+  std::snprintf(diag, sizeof(diag),
+                "{\"driver\":\"%s\",\"status\":%u,\"irq\":%u,\"irq_hex\":\"0x%04X\",\"dev_errors\":%u,\"dev_errors_hex\":\"0x%04X\","
+                "\"spi_dev_prefix\":\"%s\",\"spi_bus\":%d,\"spi_cs\":%d,\"spi_speed\":%d,"
+                "\"freq\":%d,\"bw\":%d,\"sf\":%d,\"cr\":%d,\"tx\":%d,\"pre\":%d,\"sync\":\"0x%04X\","
+                "\"cs_pin\":%d,\"reset_pin\":%d,\"busy_pin\":%d,\"irq_pin\":%d,\"txen\":%d,\"rxen\":%d,"
+                "\"dio2_rf\":%d,\"tcxo\":%d,\"tcxo_voltage\":%u,\"tcxo_delay_us\":%u,"
+                "\"last_rssi\":%.1f,\"last_snr\":%.2f,\"noise_floor\":%d}",
+                radio_driver.getDriverName(), st, irq, irq, errs, errs,
+                cfg.spi_dev_prefix.c_str(), cfg.spi_bus, cfg.spi_cs, cfg.spi_speed_hz,
+                cfg.frequency_hz, cfg.bandwidth_hz, cfg.spreading_factor, cfg.coding_rate, cfg.tx_power_dbm,
+                cfg.preamble_len, cfg.sync_word,
+                cfg.cs_pin, cfg.reset_pin, cfg.busy_pin, cfg.irq_pin, cfg.txen_pin, cfg.rxen_pin,
+                cfg.use_dio2_rf_switch ? 1 : 0, cfg.use_dio3_tcxo ? 1 : 0, cfg.tcxo_voltage, cfg.tcxo_delay_us,
+                radio_driver.getLastRSSI(), radio_driver.getLastSNR(), radio_driver.getNoiseFloor());
+  std::cout << "radio-diag: " << diag << "\n";
 }
 
 bool hasEnv(const char* name) {
@@ -205,6 +252,8 @@ int main(int argc, char** argv) {
       radio_set_params(freq_mhz, bw_khz, sf, cr);
       radio_set_tx_power(tx_dbm);
     }
+
+    printStartupRadioInfo(tcp_port);
 
     LinuxTcpSerialInterface serial_interface(tcp_port);
     the_mesh.startInterface(serial_interface);
