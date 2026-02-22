@@ -54,8 +54,14 @@ public:
   void onSendFinished() override;
   bool isInRecvMode() const override;
   bool isReceiving() override;
+  void loop() override;
   float getLastRSSI() const override;
   float getLastSNR() const override;
+  int getNoiseFloor() const override;
+  void triggerNoiseFloorCalibrate(int threshold) override;
+  void resetAGC() override;
+
+  uint32_t getRecvErrorEvents() const { return recv_error_events; }
 
   uint8_t debugGetStatus();
   uint16_t debugGetIrqStatus();
@@ -69,6 +75,11 @@ private:
   bool rx_mode = false;
   float last_rssi = -120.0f;
   float last_snr = 0.0f;
+  float noise_floor = -120.0f;
+  uint32_t recv_error_events = 0;
+  int16_t noise_threshold = 0;
+  uint16_t floor_samples = 0;
+  int32_t floor_sample_sum = 0;
   int sysfs_gpio_base = -1;
 
   void openSpi();
@@ -107,5 +118,7 @@ private:
   void sxSetTx();
   void sxWriteBuffer(const uint8_t* data, int len);
   int sxReadBuffer(uint8_t* out, int max_len);
+  float sxReadInstantRssi();
+  void sxUpdateNoiseFloor(float rssi_dbm);
   void sxUpdateSignalMetrics();
 };

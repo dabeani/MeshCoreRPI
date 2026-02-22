@@ -1,5 +1,9 @@
 #include "MyMesh.h"
 #include <algorithm>
+#ifdef __linux__
+#include <fstream>
+#include <string>
+#endif
 
 /* ------------------------------ Config -------------------------------- */
 
@@ -59,6 +63,90 @@
 #define CLI_REPLY_DELAY_MILLIS      600
 
 #define LAZY_CONTACTS_WRITE_DELAY    5000
+
+#ifdef __linux__
+namespace {
+struct LinuxCpuSnapshot {
+  uint64_t idle = 0;
+  uint64_t total = 0;
+  bool valid = false;
+};
+
+LinuxCpuSnapshot readLinuxCpuSnapshot() {
+  LinuxCpuSnapshot snap;
+  std::ifstream stat("/proc/stat");
+  std::string cpu;
+  uint64_t user = 0, nice = 0, system = 0, idle = 0, iowait = 0, irq = 0, softirq = 0, steal = 0;
+  if (!(stat >> cpu >> user >> nice >> system >> idle >> iowait >> irq >> softirq >> steal)) {
+    return snap;
+  }
+  if (cpu != "cpu") {
+    return snap;
+  }
+
+  snap.idle = idle + iowait;
+  snap.total = user + nice + system + idle + iowait + irq + softirq + steal;
+  snap.valid = snap.total > 0;
+  return snap;
+}
+
+bool getLinuxCpuUsage(float& cpu_usage_pct) {
+  static LinuxCpuSnapshot prev;
+  LinuxCpuSnapshot cur = readLinuxCpuSnapshot();
+  if (!cur.valid) {
+    return false;
+  }
+  if (!prev.valid) {
+    prev = cur;
+    cpu_usage_pct = 0.0f;
+    return true;
+  }
+
+  const uint64_t total_delta = cur.total - prev.total;
+  const uint64_t idle_delta = cur.idle - prev.idle;
+  prev = cur;
+
+  if (total_delta == 0) {
+    return false;
+  }
+
+  cpu_usage_pct = 100.0f * static_cast<float>(total_delta - idle_delta) / static_cast<float>(total_delta);
+  if (cpu_usage_pct < 0.0f) cpu_usage_pct = 0.0f;
+  if (cpu_usage_pct > 100.0f) cpu_usage_pct = 100.0f;
+  return true;
+}
+
+bool getLinuxMemoryUsage(float& mem_usage_pct) {
+  std::ifstream meminfo("/proc/meminfo");
+  std::string key;
+  uint64_t value = 0;
+  std::string unit;
+  uint64_t mem_total_kb = 0;
+  uint64_t mem_available_kb = 0;
+
+  while (meminfo >> key >> value >> unit) {
+    if (key == "MemTotal:") {
+      mem_total_kb = value;
+    } else if (key == "MemAvailable:") {
+      mem_available_kb = value;
+    }
+    if (mem_total_kb > 0 && mem_available_kb > 0) {
+      break;
+    }
+  }
+
+  if (mem_total_kb == 0 || mem_available_kb > mem_total_kb) {
+    return false;
+  }
+
+  const uint64_t used_kb = mem_total_kb - mem_available_kb;
+  mem_usage_pct = 100.0f * static_cast<float>(used_kb) / static_cast<float>(mem_total_kb);
+  if (mem_usage_pct < 0.0f) mem_usage_pct = 0.0f;
+  if (mem_usage_pct > 100.0f) mem_usage_pct = 100.0f;
+  return true;
+}
+}
+#endif
 
 void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float snr) {
 #if MAX_NEIGHBOURS // check if neighbours enabled
@@ -248,6 +336,18 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
     if(!isnan(temperature)) { // Supported boards with built-in temperature sensor. ESP32-C3 may return NAN
       telemetry.addTemperature(TELEM_CHANNEL_SELF, temperature); // Built-in MCU Temperature
     }
+
+#ifdef __linux__
+    float cpu_usage_pct = 0.0f;
+    if (getLinuxCpuUsage(cpu_usage_pct)) {
+      telemetry.addAnalogInput(250, cpu_usage_pct);
+    }
+
+    float mem_usage_pct = 0.0f;
+    if (getLinuxMemoryUsage(mem_usage_pct)) {
+      telemetry.addAnalogInput(251, mem_usage_pct);
+    }
+#endif
 
     uint8_t tlen = telemetry.getSize();
     memcpy(&reply_data[4], telemetry.getBuffer(), tlen);
@@ -959,7 +1059,22 @@ void MyMesh::removeNeighbor(const uint8_t *pubkey, int key_len) {
 }
 
 void MyMesh::formatStatsReply(char *reply) {
+#ifdef __linux__
+  float cpu_usage_pct = 0.0f;
+  float mem_usage_pct = 0.0f;
+  const bool has_cpu = getLinuxCpuUsage(cpu_usage_pct);
+  const bool has_mem = getLinuxMemoryUsage(mem_usage_pct);
+  sprintf(reply,
+          "{\"battery_mv\":%u,\"uptime_secs\":%u,\"errors\":%u,\"queue_len\":%u,\"cpu_usage_pct\":%.2f,\"mem_usage_pct\":%.2f}",
+          board.getBattMilliVolts(),
+          _ms->getMillis() / 1000,
+          _err_flags,
+          _mgr->getOutboundCount(0xFFFFFFFF),
+          has_cpu ? cpu_usage_pct : 0.0f,
+          has_mem ? mem_usage_pct : 0.0f);
+#else
   StatsFormatHelper::formatCoreStats(reply, board, *_ms, _err_flags, _mgr);
+#endif
 }
 
 void MyMesh::formatRadioStatsReply(char *reply) {
@@ -974,12 +1089,18 @@ void MyMesh::formatRadioDiagReply(char *reply) {
   const auto cfg = radio_driver.getConfig();
   sprintf(reply,
           "{\"status\":%u,\"irq\":%u,\"irq_hex\":\"0x%04X\",\"dev_errors\":%u,\"dev_errors_hex\":\"0x%04X\","
-          "\"freq\":%d,\"bw\":%d,\"sf\":%d,\"cr\":%d,\"tx\":%d,\"pre\":%d,\"sync\":\"0x%04X\","
-          "\"cs_pin\":%d,\"txen\":%d,\"rxen\":%d,\"dio2_rf\":%d,\"tcxo\":%d}",
+      "\"spi_bus\":%d,\"spi_cs\":%d,\"spi_speed\":%d,"
+      "\"freq\":%d,\"bw\":%d,\"sf\":%d,\"cr\":%d,\"tx\":%d,\"pre\":%d,\"sync\":\"0x%04X\","
+      "\"cs_pin\":%d,\"reset_pin\":%d,\"busy_pin\":%d,\"irq_pin\":%d,\"txen\":%d,\"rxen\":%d,"
+      "\"dio2_rf\":%d,\"tcxo\":%d,\"tcxo_voltage\":%u,\"tcxo_delay_us\":%u,"
+      "\"last_rssi\":%.1f,\"last_snr\":%.2f,\"noise_floor\":%d}",
           st, irq, irq, errs, errs,
+      cfg.spi_bus, cfg.spi_cs, cfg.spi_speed_hz,
           cfg.frequency_hz, cfg.bandwidth_hz, cfg.spreading_factor, cfg.coding_rate, cfg.tx_power_dbm,
           cfg.preamble_len, cfg.sync_word,
-          cfg.cs_pin, cfg.txen_pin, cfg.rxen_pin, cfg.use_dio2_rf_switch ? 1 : 0, cfg.use_dio3_tcxo ? 1 : 0);
+      cfg.cs_pin, cfg.reset_pin, cfg.busy_pin, cfg.irq_pin, cfg.txen_pin, cfg.rxen_pin,
+      cfg.use_dio2_rf_switch ? 1 : 0, cfg.use_dio3_tcxo ? 1 : 0, cfg.tcxo_voltage, cfg.tcxo_delay_us,
+      radio_driver.getLastRSSI(), radio_driver.getLastSNR(), radio_driver.getNoiseFloor());
 #else
   strcpy(reply, "not supported");
 #endif

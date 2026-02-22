@@ -22,6 +22,8 @@ constexpr uint16_t IRQ_TX_DONE = 0x0001;
 constexpr uint16_t IRQ_RX_DONE = 0x0002;
 constexpr uint16_t IRQ_CRC_ERR = 0x0040;
 constexpr uint16_t IRQ_TIMEOUT = 0x0200;
+constexpr uint16_t NUM_NOISE_FLOOR_SAMPLES = 64;
+constexpr int16_t DEFAULT_SAMPLING_THRESHOLD = 14;
 
 std::string gpioPath(int pin, const std::string& node) {
   return "/sys/class/gpio/gpio" + std::to_string(pin) + "/" + node;
@@ -441,6 +443,25 @@ int SX1262LinuxRadio::sxReadBuffer(uint8_t* out, int max_len) {
 #endif
 }
 
+float SX1262LinuxRadio::sxReadInstantRssi() {
+  uint8_t st = 0;
+  spiReadCommand(0x15, &st, 1);
+  return -0.5f * static_cast<float>(st);
+}
+
+void SX1262LinuxRadio::sxUpdateNoiseFloor(float rssi_dbm) {
+  if (!std::isfinite(rssi_dbm)) {
+    return;
+  }
+
+  // Smooth ambient noise estimate while keeping quick adaptation to lower noise.
+  if (rssi_dbm < noise_floor) {
+    noise_floor = rssi_dbm;
+  } else {
+    noise_floor = (noise_floor * 0.95f) + (rssi_dbm * 0.05f);
+  }
+}
+
 void SX1262LinuxRadio::sxUpdateSignalMetrics() {
   uint8_t st[3] = {0, 0, 0};
   spiReadCommand(0x14, st, 3);
@@ -448,6 +469,7 @@ void SX1262LinuxRadio::sxUpdateSignalMetrics() {
   const int8_t snr_raw = static_cast<int8_t>(st[1]);
   last_rssi = rssi;
   last_snr = static_cast<float>(snr_raw) / 4.0f;
+  sxUpdateNoiseFloor(rssi - 6.0f);
 }
 
 void SX1262LinuxRadio::begin() {
@@ -499,6 +521,10 @@ void SX1262LinuxRadio::begin() {
   sxSetDioIrqMask(static_cast<uint16_t>(IRQ_TX_DONE | IRQ_RX_DONE | IRQ_CRC_ERR | IRQ_TIMEOUT));
   sxClearIrq();
   sxSetRxContinuous();
+
+  noise_threshold = DEFAULT_SAMPLING_THRESHOLD;
+  floor_samples = 0;
+  floor_sample_sum = 0;
 }
 
 uint8_t SX1262LinuxRadio::debugGetStatus() {
@@ -520,11 +546,20 @@ void SX1262LinuxRadio::debugClearDeviceErrors() {
 int SX1262LinuxRadio::recvRaw(uint8_t* bytes, int sz) {
   const uint16_t irq = sxGetIrq();
   if ((irq & IRQ_RX_DONE) == 0) {
+    // Keep ambient noise estimate alive while idling in RX mode.
+    sxUpdateNoiseFloor(sxReadInstantRssi());
+
+    if ((irq & (IRQ_CRC_ERR | IRQ_TIMEOUT)) != 0) {
+      recv_error_events++;
+      sxClearIrq();
+      sxSetRxContinuous();
+    }
     return 0;
   }
 
   sxClearIrq();
   if ((irq & IRQ_CRC_ERR) != 0) {
+    recv_error_events++;
     sxSetRxContinuous();
     return 0;
   }
@@ -596,10 +631,62 @@ bool SX1262LinuxRadio::isReceiving() {
   return gpioRead(cfg.busy_pin) != 0;
 }
 
+void SX1262LinuxRadio::loop() {
+  if (!isInRecvMode()) {
+    return;
+  }
+
+  if (floor_samples >= NUM_NOISE_FLOOR_SAMPLES) {
+    if (floor_sample_sum != 0) {
+      noise_floor = static_cast<float>(floor_sample_sum) / static_cast<float>(NUM_NOISE_FLOOR_SAMPLES);
+      if (noise_floor < -120.0f) {
+        noise_floor = -120.0f;
+      }
+    }
+    floor_samples = 0;
+    floor_sample_sum = 0;
+    return;
+  }
+
+  if (!isReceiving()) {
+    const float rssi = sxReadInstantRssi();
+    const float threshold = noise_floor + static_cast<float>(noise_threshold);
+    if (rssi < threshold) {
+      floor_sample_sum += static_cast<int32_t>(std::lround(rssi));
+      floor_samples++;
+    }
+    sxUpdateNoiseFloor(rssi);
+  }
+}
+
 float SX1262LinuxRadio::getLastRSSI() const {
   return last_rssi;
 }
 
 float SX1262LinuxRadio::getLastSNR() const {
   return last_snr;
+}
+
+int SX1262LinuxRadio::getNoiseFloor() const {
+  return static_cast<int>(std::lround(noise_floor));
+}
+
+void SX1262LinuxRadio::triggerNoiseFloorCalibrate(int threshold) {
+  if (threshold > 0) {
+    noise_threshold = static_cast<int16_t>(threshold);
+  } else {
+    noise_threshold = DEFAULT_SAMPLING_THRESHOLD;
+  }
+  floor_samples = 0;
+  floor_sample_sum = 0;
+}
+
+void SX1262LinuxRadio::resetAGC() {
+  // SX1262 AGC is internal; forcing RX restart refreshes the receive chain.
+  if (tx_pending) {
+    return;
+  }
+  sxClearIrq();
+  sxSetStandby();
+  sxSetRxContinuous();
 }

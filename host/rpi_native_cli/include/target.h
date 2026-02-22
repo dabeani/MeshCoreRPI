@@ -34,7 +34,12 @@ public:
   explicit LinuxRadioDriver(const Config& cfg) : SX1262LinuxRadio(cfg) {}
 
   int recvRaw(uint8_t* bytes, int sz) override {
+    const uint32_t prev_error_events = getRecvErrorEvents();
     const int n = SX1262LinuxRadio::recvRaw(bytes, sz);
+    const uint32_t cur_error_events = getRecvErrorEvents();
+    if (cur_error_events > prev_error_events) {
+      packets_recv_errors += (cur_error_events - prev_error_events);
+    }
     if (n > 0) packets_recv++;
     return n;
   }

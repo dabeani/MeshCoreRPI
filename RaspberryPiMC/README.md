@@ -160,6 +160,42 @@ sudo journalctl -u raspberrypimc-repeater.service -f
 sudo journalctl -u raspberrypimc-companion.service -f
 ```
 
+### Native Linux diagnostics and telemetry
+
+The native SX1262 Linux driver now exposes full runtime diagnostics and supports noise-floor calibration/AGC reset hooks used by MeshCore.
+
+Quick checks from CLI:
+
+```text
+stats-core
+stats-radio
+stats-packets
+radio-diag
+```
+
+`stats-core` (Linux native) now includes:
+
+- `cpu_usage_pct` (Raspberry Pi host CPU usage)
+- `mem_usage_pct` (Raspberry Pi host memory usage)
+
+`stats-radio` / `stats-packets` now include native values for:
+
+- live `noise_floor`
+- non-zero `recv_errors` when CRC/timeout RX errors happen
+
+`radio-diag` now includes extended SX1262 native runtime config and live values, including:
+
+- SPI (`spi_bus`, `spi_cs`, `spi_speed`)
+- radio (`freq`, `bw`, `sf`, `cr`, `tx`, `pre`, `sync`)
+- pins (`cs_pin`, `reset_pin`, `busy_pin`, `irq_pin`, `txen`, `rxen`)
+- control flags (`dio2_rf`, `tcxo`, `tcxo_voltage`, `tcxo_delay_us`)
+- live metrics (`last_rssi`, `last_snr`, `noise_floor`)
+
+Telemetry payload (`REQ_TYPE_GET_TELEMETRY_DATA`) adds Linux host metrics on these LPP channels:
+
+- channel `250`: CPU usage (%)
+- channel `251`: memory usage (%)
+
 ### 3) Direct mode (no package) — copy/paste
 
 ```bash

@@ -776,7 +776,7 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       _callbacks->formatPacketStatsReply(reply);
     } else if (sender_timestamp == 0 && memcmp(command, "stats-radio", 11) == 0 && (command[11] == 0 || command[11] == ' ')) {
       _callbacks->formatRadioStatsReply(reply);
-    } else if (sender_timestamp == 0 && memcmp(command, "radio-diag", 10) == 0 && (command[10] == 0 || command[10] == ' ')) {
+    } else if (memcmp(command, "radio-diag", 10) == 0 && (command[10] == 0 || command[10] == ' ')) {
       _callbacks->formatRadioDiagReply(reply);
     } else if (sender_timestamp == 0 && memcmp(command, "stats-core", 10) == 0 && (command[10] == 0 || command[10] == ' ')) {
       _callbacks->formatStatsReply(reply);

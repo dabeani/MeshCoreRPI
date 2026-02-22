@@ -36,6 +36,15 @@ public:
     buf[len_++] = static_cast<uint8_t>(t & 0xFF);
   }
 
+  void addAnalogInput(uint8_t channel, float value) {
+    if (len_ + 4 > max_) return;
+    int16_t v = static_cast<int16_t>(value * 100.0f);
+    buf[len_++] = channel;
+    buf[len_++] = 0x02;
+    buf[len_++] = static_cast<uint8_t>((v >> 8) & 0xFF);
+    buf[len_++] = static_cast<uint8_t>(v & 0xFF);
+  }
+
   uint8_t getSize() const { return len_; }
   uint8_t* getBuffer() { return buf; }
 };
