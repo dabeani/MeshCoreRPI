@@ -378,31 +378,40 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         }
       // Power management commands
       } else if (memcmp(config, "pwrmgt.support", 14) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        strcpy(reply, "> supported");
-#else
-        strcpy(reply, "> unsupported");
-#endif
+        const bool has_boot_mv = (_board->getBootVoltage() > 0);
+        const char* reset_reason = _board->getResetReasonString(_board->getResetReason());
+        const char* shutdown_reason = _board->getShutdownReasonString(_board->getShutdownReason());
+        const bool has_reason_strings =
+          (strcmp(reset_reason, "Not available") != 0) ||
+          (strcmp(shutdown_reason, "Not available") != 0);
+        strcpy(reply, (has_boot_mv || has_reason_strings) ? "> supported" : "> unsupported");
       } else if (memcmp(config, "pwrmgt.source", 13) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        strcpy(reply, _board->isExternalPowered() ? "> external" : "> battery");
-#else
-        strcpy(reply, "ERROR: Power management not supported");
-#endif
+        const bool has_boot_mv = (_board->getBootVoltage() > 0);
+        const char* reset_reason = _board->getResetReasonString(_board->getResetReason());
+        const char* shutdown_reason = _board->getShutdownReasonString(_board->getShutdownReason());
+        const bool has_reason_strings =
+          (strcmp(reset_reason, "Not available") != 0) ||
+          (strcmp(shutdown_reason, "Not available") != 0);
+        if (has_boot_mv || has_reason_strings) {
+          strcpy(reply, _board->isExternalPowered() ? "> external" : "> battery");
+        } else {
+          strcpy(reply, "ERROR: Power management not supported");
+        }
       } else if (memcmp(config, "pwrmgt.bootreason", 17) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        sprintf(reply, "> Reset: %s; Shutdown: %s",
-          _board->getResetReasonString(_board->getResetReason()),
-          _board->getShutdownReasonString(_board->getShutdownReason()));
-#else
-        strcpy(reply, "ERROR: Power management not supported");
-#endif
+        const char* reset_reason = _board->getResetReasonString(_board->getResetReason());
+        const char* shutdown_reason = _board->getShutdownReasonString(_board->getShutdownReason());
+        if ((strcmp(reset_reason, "Not available") == 0) && (strcmp(shutdown_reason, "Not available") == 0)) {
+          strcpy(reply, "ERROR: Power management not supported");
+        } else {
+          sprintf(reply, "> Reset: %s; Shutdown: %s", reset_reason, shutdown_reason);
+        }
       } else if (memcmp(config, "pwrmgt.bootmv", 13) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        sprintf(reply, "> %u mV", _board->getBootVoltage());
-#else
-        strcpy(reply, "ERROR: Power management not supported");
-#endif
+        const uint16_t boot_mv = _board->getBootVoltage();
+        if (boot_mv == 0) {
+          strcpy(reply, "ERROR: Power management not supported");
+        } else {
+          sprintf(reply, "> %u mV", boot_mv);
+        }
       } else {
         sprintf(reply, "??: %s", config);
       }
