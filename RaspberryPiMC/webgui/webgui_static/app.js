@@ -1105,10 +1105,8 @@ async function refreshRegions() {
     setRegionStatus('Error: ' + (d?.error || '?'));
     return;
   }
-  const { home, regions } = d.payload;
-  renderRegionList(regions, home);
-  const homeEl = document.getElementById('region-home-display');
-  if (homeEl) homeEl.textContent = home || '(none)';
+  const { regions } = d.payload;
+  renderRegionList(regions);
   setRegionStatus(`${regions.length} region${regions.length !== 1 ? 's' : ''} loaded`);
 }
 
@@ -1117,7 +1115,7 @@ function setRegionStatus(msg) {
   if (el) el.textContent = msg;
 }
 
-function renderRegionList(regions, home) {
+function renderRegionList(regions) {
   const container = document.getElementById('region-list');
   if (!container) return;
   if (!regions || !regions.length) {
@@ -1134,19 +1132,15 @@ function renderRegionList(regions, home) {
     const isWild    = r.name === '*';
     const nameDisp  = isWild ? '&#9733; * — Forward All' : _esc(r.name);
     const nameClass = 'region-row-name' + (isWild ? ' region-node-wildcard' : '');
-    const homeBadge = r.home ? '<span class="region-node-badge home">HOME</span>' : '';
     const allowCls  = r.flood  ? ' rfl-active' : '';
     const denyCls   = !r.flood ? ' rfl-active' : '';
-    const homeCls   = r.home   ? ' rfl-active' : '';
     const removeBtn = isWild ? '' :
       `<button class="rfl-btn rfl-remove" data-action="remove" title="Remove region">\uD83D\uDDD1</button>`;
     return `<div class="region-row" data-region="${_esc(r.name)}">` +
       `<span class="${nameClass}">${nameDisp}</span>` +
-      `${homeBadge}` +
       `<div class="region-row-actions">` +
       `<button class="rfl-btn rfl-flood-allow${allowCls}" data-action="allowf" title="Allow flood">\u2713 Flood</button>` +
       `<button class="rfl-btn rfl-flood-deny${denyCls}" data-action="denyf" title="Deny flood">\u00d7 Flood</button>` +
-      `<button class="rfl-btn rfl-home${homeCls}" data-action="home" title="Set as home region">\uD83C\uDFE0</button>` +
       `${removeBtn}` +
       `</div></div>`;
   }).join('');
@@ -1223,10 +1217,7 @@ function renderAll(snap) {
 
   // Region list: sync from pushed state when on config tab
   if (app.activeTab === 'config' && snap.regions?.length) {
-    const home = snap.regions.find(r => r.home)?.name || '';
-    renderRegionList(snap.regions, home);
-    const homeEl = document.getElementById('region-home-display');
-    if (homeEl && homeEl.textContent === '–') homeEl.textContent = home || '(none)';
+    renderRegionList(snap.regions);
   }
 
   // Track new messages and update the tab badge (even off-tab)
@@ -1408,12 +1399,6 @@ function wireUi() {
     } else if (action === 'denyf') {
       const d = await sendCommand('region_denyf', { name: regionName });
       setRegionStatus(d?.payload?.reply || `Flood denied: ${regionName}`);
-      await refreshRegions();
-    } else if (action === 'home') {
-      const d = await sendCommand('region_home_set', { name: regionName });
-      setRegionStatus(d?.payload?.reply || `Home set to ${regionName}`);
-      const homeEl = document.getElementById('region-home-display');
-      if (homeEl) homeEl.textContent = regionName;
       await refreshRegions();
     } else if (action === 'remove') {
       if (!confirm(`Remove region "${regionName}"?`)) return;

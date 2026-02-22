@@ -534,15 +534,6 @@ body[data-role="repeater"]  .tab-pane.repeater-only.active  { display: block; }
 .dm-contact-kind { font-size: 10px; color: var(--muted); }
 
 /* ─────────────── Region manager ─────────────── */
-.region-home-bar {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 12px; background: rgba(88,166,255,.08);
-  border: 1px solid rgba(88,166,255,.2); border-radius: 8px;
-  margin-bottom: 10px; flex-shrink: 0;
-}
-.region-home-label { font-size: 12px; color: var(--muted); }
-.region-home-value { font-weight: 700; color: var(--accent); font-size: 13px; }
-
 .region-list-panel {
   border: 1px solid var(--border2); border-radius: 8px; overflow: hidden;
   display: flex; flex-direction: column; margin-bottom: 10px;
@@ -572,7 +563,6 @@ body[data-role="repeater"]  .tab-pane.repeater-only.active  { display: block; }
 }
 .region-node-badge.flood { background: rgba(63,185,80,.2);   color: #3fb950; }
 .region-node-badge.deny  { background: rgba(247,129,102,.2); color: #f78166; }
-.region-node-badge.home  { background: rgba(88,166,255,.2);  color: var(--accent); }
 .region-node-wildcard    { color: var(--muted); font-style: italic; }
 
 .region-row-actions { display: flex; gap: 3px; flex-shrink: 0; }
@@ -586,7 +576,6 @@ body[data-role="repeater"]  .tab-pane.repeater-only.active  { display: block; }
 .rfl-flood-allow.rfl-active  { background: rgba(63,185,80,.2);   color: #3fb950; border-color: rgba(63,185,80,.5);   font-weight: 600; }
 .rfl-flood-deny              { border-color: rgba(247,129,102,.3); }
 .rfl-flood-deny.rfl-active   { background: rgba(247,129,102,.2); color: #f78166; border-color: rgba(247,129,102,.5); font-weight: 600; }
-.rfl-home.rfl-active         { background: rgba(88,166,255,.2);  color: var(--accent); border-color: rgba(88,166,255,.4); }
 .rfl-remove                  { border-color: rgba(248,81,73,.3); color: rgba(248,81,73,.6); }
 .rfl-remove:hover            { background: rgba(248,81,73,.15); color: #f85149; border-color: rgba(248,81,73,.5); }
 
