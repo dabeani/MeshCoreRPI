@@ -14,6 +14,7 @@ RPI_SF="11"
 RPI_BW_HZ="250000"
 RPI_CR="5"
 RPI_TX_DBM="22"
+RPI_RADIO_DRIVER="sx1262"
 RPI_DATA_DIR="/var/lib/raspberrypimc/userdata"
 RPI_SPI_DEV_PREFIX="/dev/spidev"
 RPI_SPI_BUS="0"
@@ -46,6 +47,7 @@ RPI_SF=$RPI_SF
 RPI_BW_HZ=$RPI_BW_HZ
 RPI_CR=$RPI_CR
 RPI_TX_DBM=$RPI_TX_DBM
+RPI_RADIO_DRIVER=$RPI_RADIO_DRIVER
 RPI_DATA_DIR=$RPI_DATA_DIR
 RPI_SPI_DEV_PREFIX=$RPI_SPI_DEV_PREFIX
 RPI_SPI_BUS=$RPI_SPI_BUS
@@ -86,6 +88,7 @@ configure_values() {
   RPI_BW_HZ="$(prompt_value RPI_BW_HZ "$RPI_BW_HZ" "LoRa bandwidth (Hz)")"
   RPI_CR="$(prompt_value RPI_CR "$RPI_CR" "LoRa coding rate")"
   RPI_TX_DBM="$(prompt_value RPI_TX_DBM "$RPI_TX_DBM" "TX power (dBm)")"
+  RPI_RADIO_DRIVER="$(prompt_value RPI_RADIO_DRIVER "$RPI_RADIO_DRIVER" "Radio driver (sx1262|sx127x)")"
   RPI_DATA_DIR="$(prompt_value RPI_DATA_DIR "$RPI_DATA_DIR" "Data directory")"
   RPI_SPI_DEV_PREFIX="$(prompt_value RPI_SPI_DEV_PREFIX "$RPI_SPI_DEV_PREFIX" "SPI device prefix")"
   RPI_SPI_BUS="$(prompt_value RPI_SPI_BUS "$RPI_SPI_BUS" "SPI bus")"
@@ -118,6 +121,7 @@ show_values() {
   echo "  RPI_BW_HZ=$RPI_BW_HZ"
   echo "  RPI_CR=$RPI_CR"
   echo "  RPI_TX_DBM=$RPI_TX_DBM"
+  echo "  RPI_RADIO_DRIVER=$RPI_RADIO_DRIVER"
   echo "  RPI_DATA_DIR=$RPI_DATA_DIR"
   echo "  RPI_SPI_DEV_PREFIX=$RPI_SPI_DEV_PREFIX"
   echo "  RPI_SPI_BUS=$RPI_SPI_BUS"
@@ -200,6 +204,7 @@ run_repeater() {
     --bw "$RPI_BW_HZ" \
     --cr "$RPI_CR" \
     --tx "$RPI_TX_DBM" \
+    --radio-driver "$RPI_RADIO_DRIVER" \
     --spi-dev-prefix "$RPI_SPI_DEV_PREFIX" \
     --spi-bus "$RPI_SPI_BUS" \
     --spi-cs "$RPI_SPI_CS" \
@@ -242,6 +247,7 @@ run_companion() {
       --bw "$RPI_BW_HZ" \
       --cr "$RPI_CR" \
       --tx "$RPI_TX_DBM" \
+      --radio-driver "$RPI_RADIO_DRIVER" \
       --spi-dev-prefix "$RPI_SPI_DEV_PREFIX" \
       --spi-bus "$RPI_SPI_BUS" \
       --spi-cs "$RPI_SPI_CS" \
@@ -259,6 +265,7 @@ run_companion() {
       --bw "$RPI_BW_HZ" \
       --cr "$RPI_CR" \
       --tx "$RPI_TX_DBM" \
+      --radio-driver "$RPI_RADIO_DRIVER" \
       --spi-dev-prefix "$RPI_SPI_DEV_PREFIX" \
       --spi-bus "$RPI_SPI_BUS" \
       --spi-cs "$RPI_SPI_CS" \

@@ -3,8 +3,13 @@
 #include <MeshCore.h>
 #include <helpers/ArduinoHelpers.h>
 #include <helpers/SensorManager.h>
+#include <LinuxRadioBase.h>
 #include <SX1262LinuxRadio.h>
+#include <SX127xLinuxRadio.h>
 #include "LittleFS.h"
+
+#include <memory>
+#include <string>
 
 #define RP2040_PLATFORM 1
 
@@ -34,18 +39,35 @@ public:
   void begin() {}
 };
 
-class LinuxRadioDriver : public SX1262LinuxRadio {
+class LinuxRadioDriver : public mesh::Radio {
+  LinuxRadioConfig cfg;
+  std::string driver_name = "sx1262";
+  std::unique_ptr<LinuxRadioBase> backend;
+
   uint32_t packets_recv = 0;
   uint32_t packets_sent = 0;
   uint32_t packets_recv_errors = 0;
 
+  void ensureBackend();
+
 public:
-  explicit LinuxRadioDriver(const Config& cfg) : SX1262LinuxRadio(cfg) {}
+  explicit LinuxRadioDriver(const LinuxRadioConfig& cfg);
+
+  void setDriverName(const std::string& name);
+  const char* getDriverName() const;
+  void setConfig(const LinuxRadioConfig& cfg_);
+  const LinuxRadioConfig& getConfig() const;
+
+  void begin() override;
+
+  uint32_t getEstAirtimeFor(int len_bytes) override;
+  float packetScore(float snr, int packet_len) override;
 
   int recvRaw(uint8_t* bytes, int sz) override {
-    const uint32_t prev_error_events = getRecvErrorEvents();
-    const int n = SX1262LinuxRadio::recvRaw(bytes, sz);
-    const uint32_t cur_error_events = getRecvErrorEvents();
+    ensureBackend();
+    const uint32_t prev_error_events = backend->getRecvErrorEvents();
+    const int n = backend->recvRaw(bytes, sz);
+    const uint32_t cur_error_events = backend->getRecvErrorEvents();
     if (cur_error_events > prev_error_events) {
       packets_recv_errors += (cur_error_events - prev_error_events);
     }
@@ -54,19 +76,40 @@ public:
   }
 
   bool startSendRaw(const uint8_t* bytes, int len) override {
-    return SX1262LinuxRadio::startSendRaw(bytes, len);
+    ensureBackend();
+    return backend->startSendRaw(bytes, len);
   }
 
   bool isSendComplete() override {
-    const bool done = SX1262LinuxRadio::isSendComplete();
+    ensureBackend();
+    const bool done = backend->isSendComplete();
     if (done) packets_sent++;
     return done;
   }
+
+  void onSendFinished() override {
+    ensureBackend();
+    backend->onSendFinished();
+  }
+
+  bool isInRecvMode() const override;
+  bool isReceiving() override;
+  void loop() override;
+  float getLastRSSI() const override;
+  float getLastSNR() const override;
+  int getNoiseFloor() const override;
+  void triggerNoiseFloorCalibrate(int threshold) override;
+  void resetAGC() override;
 
   uint32_t getPacketsRecv() const { return packets_recv; }
   uint32_t getPacketsSent() const { return packets_sent; }
   uint32_t getPacketsRecvErrors() const { return packets_recv_errors; }
   void resetStats() { packets_recv = packets_sent = packets_recv_errors = 0; }
+
+  uint8_t debugGetStatus();
+  uint16_t debugGetIrqStatus();
+  uint16_t debugGetDeviceErrors();
+  void debugClearDeviceErrors();
 
   void setRuntimeRadio(float freq, float bw, uint8_t sf, uint8_t cr, int8_t tx);
 };
@@ -78,6 +121,7 @@ extern SensorManager sensors;
 
 bool radio_init();
 uint32_t radio_get_rng_seed();
+void radio_set_driver(const char* driver_name);
 void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr);
 void radio_set_tx_power(int8_t dbm);
 void radio_set_hw_config(const char* spi_dev_prefix, int spi_bus, int spi_cs, int spi_speed_hz,

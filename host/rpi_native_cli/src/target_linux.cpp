@@ -8,7 +8,8 @@
 
 LinuxBoard board;
 
-static SX1262LinuxRadio::Config g_cfg{};
+static LinuxRadioConfig g_cfg{};
+static std::string g_driver_name = "sx1262";
 LinuxRadioDriver radio_driver(g_cfg);
 LinuxRTCClock rtc_clock;
 SensorManager sensors;
@@ -134,6 +135,117 @@ bool getThermalZone0Celsius(float& out_temp_c) {
 
 }
 
+LinuxRadioDriver::LinuxRadioDriver(const LinuxRadioConfig& cfg_) : cfg(cfg_) {}
+
+void LinuxRadioDriver::ensureBackend() {
+  if (backend && backend->getDriverName() == driver_name) {
+    return;
+  }
+
+  if (driver_name == "sx127x") {
+    backend = std::make_unique<SX127xLinuxRadio>(cfg);
+  } else {
+    driver_name = "sx1262";
+    backend = std::make_unique<SX1262LinuxRadio>(cfg);
+  }
+}
+
+void LinuxRadioDriver::setDriverName(const std::string& name) {
+  if (name == "sx127x") {
+    driver_name = "sx127x";
+  } else {
+    driver_name = "sx1262";
+  }
+  backend.reset();
+}
+
+const char* LinuxRadioDriver::getDriverName() const {
+  return driver_name.c_str();
+}
+
+void LinuxRadioDriver::setConfig(const LinuxRadioConfig& cfg_) {
+  cfg = cfg_;
+  if (backend) {
+    backend->setConfig(cfg);
+  }
+}
+
+const LinuxRadioConfig& LinuxRadioDriver::getConfig() const {
+  return cfg;
+}
+
+void LinuxRadioDriver::begin() {
+  ensureBackend();
+  backend->setConfig(cfg);
+  backend->begin();
+}
+
+uint32_t LinuxRadioDriver::getEstAirtimeFor(int len_bytes) {
+  ensureBackend();
+  return backend->getEstAirtimeFor(len_bytes);
+}
+
+float LinuxRadioDriver::packetScore(float snr, int packet_len) {
+  ensureBackend();
+  return backend->packetScore(snr, packet_len);
+}
+
+bool LinuxRadioDriver::isInRecvMode() const {
+  return backend ? backend->isInRecvMode() : false;
+}
+
+bool LinuxRadioDriver::isReceiving() {
+  ensureBackend();
+  return backend->isReceiving();
+}
+
+void LinuxRadioDriver::loop() {
+  ensureBackend();
+  backend->loop();
+}
+
+float LinuxRadioDriver::getLastRSSI() const {
+  return backend ? backend->getLastRSSI() : 0.0f;
+}
+
+float LinuxRadioDriver::getLastSNR() const {
+  return backend ? backend->getLastSNR() : 0.0f;
+}
+
+int LinuxRadioDriver::getNoiseFloor() const {
+  return backend ? backend->getNoiseFloor() : 0;
+}
+
+void LinuxRadioDriver::triggerNoiseFloorCalibrate(int threshold) {
+  ensureBackend();
+  backend->triggerNoiseFloorCalibrate(threshold);
+}
+
+void LinuxRadioDriver::resetAGC() {
+  ensureBackend();
+  backend->resetAGC();
+}
+
+uint8_t LinuxRadioDriver::debugGetStatus() {
+  ensureBackend();
+  return backend->debugGetStatus();
+}
+
+uint16_t LinuxRadioDriver::debugGetIrqStatus() {
+  ensureBackend();
+  return backend->debugGetIrqStatus();
+}
+
+uint16_t LinuxRadioDriver::debugGetDeviceErrors() {
+  ensureBackend();
+  return backend->debugGetDeviceErrors();
+}
+
+void LinuxRadioDriver::debugClearDeviceErrors() {
+  ensureBackend();
+  backend->debugClearDeviceErrors();
+}
+
 void LinuxBoard::begin() {
   boot_voltage_mv = getBattMilliVolts();
 }
@@ -187,7 +299,7 @@ bool LinuxBoard::isExternalPowered() {
 }
 
 void LinuxRadioDriver::setRuntimeRadio(float freq, float bw, uint8_t sf, uint8_t cr, int8_t tx) {
-  Config cfg = g_cfg;
+  LinuxRadioConfig cfg = g_cfg;
   cfg.frequency_hz = static_cast<int>(freq * 1000000.0f);
   cfg.bandwidth_hz = static_cast<int>(bw * 1000.0f);
   cfg.spreading_factor = sf;
@@ -201,6 +313,7 @@ void LinuxRadioDriver::setRuntimeRadio(float freq, float bw, uint8_t sf, uint8_t
 bool radio_init() {
   rtc_clock.begin();
   LittleFS.begin();
+  radio_driver.setDriverName(g_driver_name);
   // Apply any config changes that happened before init.
   radio_driver.setConfig(g_cfg);
   radio_driver.begin();
@@ -210,6 +323,15 @@ bool radio_init() {
 uint32_t radio_get_rng_seed() {
   static std::mt19937 rng{std::random_device{}()};
   return rng();
+}
+
+void radio_set_driver(const char* driver_name) {
+  if (driver_name && std::string(driver_name) == "sx127x") {
+    g_driver_name = "sx127x";
+  } else {
+    g_driver_name = "sx1262";
+  }
+  radio_driver.setDriverName(g_driver_name);
 }
 
 void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr) {

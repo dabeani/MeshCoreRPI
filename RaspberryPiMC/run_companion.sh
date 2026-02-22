@@ -56,6 +56,7 @@ if [[ -n "$BLE_PID" ]]; then
     --bw "${RPI_BW_HZ:-250000}" \
     --cr "${RPI_CR:-5}" \
     --tx "${RPI_TX_DBM:-22}" \
+    --radio-driver "${RPI_RADIO_DRIVER:-sx1262}" \
     --spi-dev-prefix "${RPI_SPI_DEV_PREFIX:-/dev/spidev}" \
     --spi-bus "${RPI_SPI_BUS:-0}" \
     --spi-cs "${RPI_SPI_CS:-0}" \
@@ -74,6 +75,7 @@ else
     --bw "${RPI_BW_HZ:-250000}" \
     --cr "${RPI_CR:-5}" \
     --tx "${RPI_TX_DBM:-22}" \
+    --radio-driver "${RPI_RADIO_DRIVER:-sx1262}" \
     --spi-dev-prefix "${RPI_SPI_DEV_PREFIX:-/dev/spidev}" \
     --spi-bus "${RPI_SPI_BUS:-0}" \
     --spi-cs "${RPI_SPI_CS:-0}" \
