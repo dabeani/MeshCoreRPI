@@ -1036,8 +1036,6 @@ async function setConfigKey(key, value) {
 }
 
 // ─── Region Manager ──────────────────────────────────
-let app_selectedRegion = null;
-
 async function refreshRegions() {
   setRegionStatus('Fetching regions…');
   const d = await sendCommand('region_refresh_full');
@@ -1046,11 +1044,10 @@ async function refreshRegions() {
     return;
   }
   const { home, regions } = d.payload;
-  renderRegionTree(regions, home);
+  renderRegionList(regions, home);
   const homeEl = document.getElementById('region-home-display');
   if (homeEl) homeEl.textContent = home || '(none)';
   setRegionStatus(`${regions.length} region${regions.length !== 1 ? 's' : ''} loaded`);
-  updateParentDropdown(regions);
 }
 
 function setRegionStatus(msg) {
@@ -1058,77 +1055,39 @@ function setRegionStatus(msg) {
   if (el) el.textContent = msg;
 }
 
-function buildRegionTree(regions) {
-  const map = {};
-  regions.forEach(r => { map[r.name] = { ...r, children: [] }; });
-  const roots = [];
-  regions.forEach(r => {
-    if (r.parent && map[r.parent]) map[r.parent].children.push(map[r.name]);
-    else roots.push(map[r.name]);
-  });
-  return roots;
-}
-
-function renderRegionTree(regions, home) {
-  const container = document.getElementById('region-tree-list');
+function renderRegionList(regions, home) {
+  const container = document.getElementById('region-list');
   if (!container) return;
   if (!regions || !regions.length) {
-    container.innerHTML = '<div class="region-tree-empty">No regions configured</div>';
+    container.innerHTML = '<div class="region-list-empty">No regions configured</div>';
     return;
   }
-  const roots = buildRegionTree(regions);
-  function renderNode(node, depth) {
-    const indent = depth * 16;
-    const isWild = node.name === '*';
-    const selClass = node.name === app_selectedRegion ? ' selected' : '';
-    const nameClass = isWild ? ' region-node-wildcard' : '';
-    const floodBadge = node.flood
-      ? '<span class="region-node-badge flood">F</span>'
-      : '<span class="region-node-badge deny">\u00d7F</span>';
-    const homeBadge = node.home ? '<span class="region-node-badge home">HOME</span>' : '';
-    let html = `<div class="region-tree-node${selClass}" data-region="${_esc(node.name)}" style="padding-left:${8 + indent}px">` +
-      `<span class="region-tree-node-name${nameClass}">${_esc(node.name)}</span>` +
-      `${floodBadge}${homeBadge}</div>`;
-    node.children.forEach(c => { html += renderNode(c, depth + 1); });
-    return html;
-  }
-  container.innerHTML = roots.map(r => renderNode(r, 0)).join('');
-}
-
-function updateParentDropdown(regions) {
-  const sel = document.getElementById('region-parent-select');
-  if (!sel) return;
-  const prev = sel.value;
-  sel.innerHTML = '<option value="">* (root)</option>';
-  (regions || []).forEach(r => {
-    const opt = document.createElement('option');
-    opt.value = r.name; opt.textContent = r.name;
-    if (r.name === prev) opt.selected = true;
-    sel.appendChild(opt);
+  // Sort: * first, then alphabetically
+  const sorted = [...regions].sort((a, b) => {
+    if (a.name === '*') return -1;
+    if (b.name === '*') return  1;
+    return a.name.localeCompare(b.name);
   });
-}
-
-function selectRegion(name) {
-  app_selectedRegion = name;
-  document.querySelectorAll('.region-tree-node').forEach(n =>
-    n.classList.toggle('selected', n.dataset.region === name)
-  );
-  const regions = app.snap?.regions || [];
-  const r = regions.find(x => x.name === name);
-  const placeholder = document.getElementById('region-detail-placeholder');
-  const content     = document.getElementById('region-detail-content');
-  const nameEl      = document.getElementById('region-detail-name');
-  const metaEl      = document.getElementById('region-detail-meta');
-  if (!r || !placeholder || !content) return;
-  placeholder.style.display = 'none';
-  content.style.display = '';
-  nameEl.textContent = r.name;
-  const parts = [];
-  if (r.parent) parts.push(`Parent: ${r.parent}`);
-  else parts.push('Parent: * (root)');
-  parts.push(r.flood ? '\ud83c\udf0a Flood: allowed' : '\ud83d\udeab Flood: denied');
-  if (r.home) parts.push('\ud83c\udfe0 Home region');
-  metaEl.textContent = parts.join('  ·  ');
+  container.innerHTML = sorted.map(r => {
+    const isWild    = r.name === '*';
+    const nameDisp  = isWild ? '&#9733; * — Forward All' : _esc(r.name);
+    const nameClass = 'region-row-name' + (isWild ? ' region-node-wildcard' : '');
+    const homeBadge = r.home ? '<span class="region-node-badge home">HOME</span>' : '';
+    const allowCls  = r.flood  ? ' rfl-active' : '';
+    const denyCls   = !r.flood ? ' rfl-active' : '';
+    const homeCls   = r.home   ? ' rfl-active' : '';
+    const removeBtn = isWild ? '' :
+      `<button class="rfl-btn rfl-remove" data-action="remove" title="Remove region">\uD83D\uDDD1</button>`;
+    return `<div class="region-row" data-region="${_esc(r.name)}">` +
+      `<span class="${nameClass}">${nameDisp}</span>` +
+      `${homeBadge}` +
+      `<div class="region-row-actions">` +
+      `<button class="rfl-btn rfl-flood-allow${allowCls}" data-action="allowf" title="Allow flood">\u2713 Flood</button>` +
+      `<button class="rfl-btn rfl-flood-deny${denyCls}" data-action="denyf" title="Deny flood">\u00d7 Flood</button>` +
+      `<button class="rfl-btn rfl-home${homeCls}" data-action="home" title="Set as home region">\uD83C\uDFE0</button>` +
+      `${removeBtn}` +
+      `</div></div>`;
+  }).join('');
 }
 
 // ─── Full Render ─────────────────────────────────────
@@ -1200,13 +1159,12 @@ function renderAll(snap) {
   if (app.activeTab === 'channels') renderChannels(snap);
   if (app.activeTab === 'messages') renderMessages(snap);
 
-  // Region tree: sync from pushed state when on config tab
+  // Region list: sync from pushed state when on config tab
   if (app.activeTab === 'config' && snap.regions?.length) {
     const home = snap.regions.find(r => r.home)?.name || '';
-    renderRegionTree(snap.regions, home);
+    renderRegionList(snap.regions, home);
     const homeEl = document.getElementById('region-home-display');
     if (homeEl && homeEl.textContent === '–') homeEl.textContent = home || '(none)';
-    updateParentDropdown(snap.regions);
   }
 
   // Track new messages and update the tab badge (even off-tab)
@@ -1345,13 +1303,7 @@ function wireUi() {
     setRegionStatus(d?.payload?.reply || 'Saved.');
   });
 
-  // Tree click (delegated)
-  document.getElementById('region-tree-list')?.addEventListener('click', e => {
-    const node = e.target.closest('[data-region]');
-    if (node) selectRegion(node.dataset.region);
-  });
-
-  // Add form toggle
+  // Region add form toggle
   document.getElementById('btn-region-add-open')?.addEventListener('click', () => {
     const f = document.getElementById('region-add-form');
     if (f) f.style.display = f.style.display === 'none' ? '' : 'none';
@@ -1365,12 +1317,11 @@ function wireUi() {
   document.getElementById('region-put-form')?.addEventListener('submit', async e => {
     e.preventDefault();
     const fd   = new FormData(e.target);
-    const name  = fd.get('name')?.trim();
-    const parent = fd.get('parent')?.trim() || '';
-    const flood  = fd.get('flood') === 'on';
+    const name = fd.get('name')?.trim();
+    const flood = fd.get('flood') === 'on';
     if (!name) return;
     setRegionStatus(`Creating ${name}…`);
-    const d = await sendCommand('region_put', { name, parent });
+    const d = await sendCommand('region_put', { name });
     if (d?.ok) {
       await sendCommand(flood ? 'region_allowf' : 'region_denyf', { name });
     }
@@ -1380,46 +1331,34 @@ function wireUi() {
     await refreshRegions();
   });
 
-  // Add child (pre-fills parent dropdown)
-  document.getElementById('btn-region-add-child')?.addEventListener('click', () => {
-    const f = document.getElementById('region-add-form');
-    if (f) f.style.display = '';
-    const sel = document.getElementById('region-parent-select');
-    if (sel && app_selectedRegion) sel.value = app_selectedRegion;
-  });
-
-  // Action buttons
-  document.getElementById('btn-region-set-home')?.addEventListener('click', async () => {
-    if (!app_selectedRegion) return;
-    const d = await sendCommand('region_home_set', { name: app_selectedRegion });
-    setRegionStatus(d?.payload?.reply || `Home set to ${app_selectedRegion}`);
-    const homeEl = document.getElementById('region-home-display');
-    if (homeEl) homeEl.textContent = app_selectedRegion;
-    await refreshRegions();
-  });
-  document.getElementById('btn-region-allowf')?.addEventListener('click', async () => {
-    if (!app_selectedRegion) return;
-    const d = await sendCommand('region_allowf', { name: app_selectedRegion });
-    setRegionStatus(d?.payload?.reply || `Flood allowed: ${app_selectedRegion}`);
-    await refreshRegions();
-  });
-  document.getElementById('btn-region-denyf')?.addEventListener('click', async () => {
-    if (!app_selectedRegion) return;
-    const d = await sendCommand('region_denyf', { name: app_selectedRegion });
-    setRegionStatus(d?.payload?.reply || `Flood denied: ${app_selectedRegion}`);
-    await refreshRegions();
-  });
-  document.getElementById('btn-region-remove')?.addEventListener('click', async () => {
-    if (!app_selectedRegion) return;
-    if (!confirm(`Remove region "${app_selectedRegion}"?\n(Must be a leaf node with no children)`)) return;
-    const d = await sendCommand('region_remove', { name: app_selectedRegion });
-    setRegionStatus(d?.payload?.reply || `Removed: ${app_selectedRegion}`);
-    app_selectedRegion = null;
-    const ph = document.getElementById('region-detail-placeholder');
-    const ct = document.getElementById('region-detail-content');
-    if (ph) ph.style.display = '';
-    if (ct) ct.style.display = 'none';
-    await refreshRegions();
+  // Inline region row actions (delegated)
+  document.getElementById('region-list')?.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const row = btn.closest('[data-region]');
+    if (!row) return;
+    const regionName = row.dataset.region;
+    const action = btn.dataset.action;
+    if (action === 'allowf') {
+      const d = await sendCommand('region_allowf', { name: regionName });
+      setRegionStatus(d?.payload?.reply || `Flood allowed: ${regionName}`);
+      await refreshRegions();
+    } else if (action === 'denyf') {
+      const d = await sendCommand('region_denyf', { name: regionName });
+      setRegionStatus(d?.payload?.reply || `Flood denied: ${regionName}`);
+      await refreshRegions();
+    } else if (action === 'home') {
+      const d = await sendCommand('region_home_set', { name: regionName });
+      setRegionStatus(d?.payload?.reply || `Home set to ${regionName}`);
+      const homeEl = document.getElementById('region-home-display');
+      if (homeEl) homeEl.textContent = regionName;
+      await refreshRegions();
+    } else if (action === 'remove') {
+      if (!confirm(`Remove region "${regionName}"?`)) return;
+      const d = await sendCommand('region_remove', { name: regionName });
+      setRegionStatus(d?.payload?.reply || `Removed: ${regionName}`);
+      await refreshRegions();
+    }
   });
 
   // Quick preset buttons

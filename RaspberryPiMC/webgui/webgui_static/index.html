@@ -235,36 +235,14 @@
                 <span id="region-home-display" class="region-home-value">–</span>
               </div>
 
-              <!-- Main tree + detail split -->
-              <div class="region-manager">
-                <!-- Left: interactive tree -->
-                <div class="region-tree-panel">
-                  <div class="region-tree-header">
-                    <span class="region-tree-title">Region Tree</span>
-                    <button id="btn-region-add-open" class="btn-sm">+ Add</button>
-                  </div>
-                  <div id="region-tree-list" class="region-tree-list">
-                    <div class="region-tree-empty">Click &#8635; Refresh to load regions</div>
-                  </div>
+              <!-- Flat region list -->
+              <div class="region-list-panel">
+                <div class="region-list-header">
+                  <span class="region-list-title">Regions</span>
+                  <button id="btn-region-add-open" class="btn-sm">+ Add</button>
                 </div>
-
-                <!-- Right: selected region actions -->
-                <div class="region-detail-panel" id="region-detail-panel">
-                  <div class="region-detail-placeholder" id="region-detail-placeholder">
-                    <div style="font-size:24px;margin-bottom:6px">&#128205;</div>
-                    <div>Select a region<br><small>Click any region in the tree</small></div>
-                  </div>
-                  <div id="region-detail-content" style="display:none">
-                    <div class="region-detail-name" id="region-detail-name"></div>
-                    <div class="region-detail-meta" id="region-detail-meta"></div>
-                    <div class="region-action-group">
-                      <button id="btn-region-set-home"  class="btn-ok region-action-btn">&#127968; Set as Home</button>
-                      <button id="btn-region-allowf"    class="btn-ok region-action-btn">&#9989; Allow Flood</button>
-                      <button id="btn-region-denyf"     class="btn-warn region-action-btn">&#128683; Deny Flood</button>
-                      <button id="btn-region-add-child" class="region-action-btn">&#10133; Add Child Region</button>
-                      <button id="btn-region-remove"    class="btn-err region-action-btn">&#128465; Remove Region</button>
-                    </div>
-                  </div>
+                <div id="region-list" class="region-list">
+                  <div class="region-list-empty">Click &#8635; Refresh to load regions</div>
                 </div>
               </div>
 
@@ -276,10 +254,7 @@
                 </div>
                 <form id="region-put-form" class="region-add-inputs">
                   <input name="name" placeholder="#RegionName" autocomplete="off" />
-                  <select name="parent" id="region-parent-select">
-                    <option value="">* (root)</option>
-                  </select>
-                  <label class="flag-checkbox"><input type="checkbox" name="flood" /> Flood</label>
+                  <label class="flag-checkbox"><input type="checkbox" name="flood" /> Allow Flood</label>
                   <button type="submit" class="btn-ok">Create</button>
                 </form>
               </div>
