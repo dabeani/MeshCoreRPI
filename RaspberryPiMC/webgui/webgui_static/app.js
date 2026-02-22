@@ -1,4 +1,11 @@
-const state = { snapshot: null, markers: new Map() };
+const state = {
+  snapshot: null,
+  markers: new Map(),
+  configKeys: [],
+  configValues: {},
+  configLoaded: false,
+  configLoading: false,
+};
 
 const map = L.map('map', { zoomControl: true }).setView([47.4, 8.5], 6);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -16,6 +23,7 @@ async function sendCommand(name, args = {}) {
   if (!data.ok) {
     alert(data.error || `Command failed: ${name}`);
   }
+  return data;
 }
 
 function fmtTime(epochOrSec) {
@@ -106,6 +114,178 @@ function renderEvents(s) {
     .join('');
 }
 
+function payloadToText(payload) {
+  if (payload == null) return '(empty)';
+  if (typeof payload === 'string') return payload;
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
+function setOutput(id, text) {
+  const node = document.getElementById(id);
+  if (node) node.textContent = text;
+}
+
+function renderConfigRows() {
+  const tbody = document.getElementById('config-rows');
+  if (!tbody) return;
+  if (!state.configKeys.length) {
+    tbody.innerHTML = '<tr><td colspan="4">No config keys loaded.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = state.configKeys
+    .map((key) => {
+      const value = state.configValues[key] ?? '';
+      return `<tr>
+        <td>${key}</td>
+        <td>${String(value).replace(/</g, '&lt;')}</td>
+        <td><input data-config-input="${key}" value="${String(value).replace(/"/g, '&quot;')}" /></td>
+        <td><button type="button" data-config-set="${key}">Set</button></td>
+      </tr>`;
+    })
+    .join('');
+}
+
+async function loadRepeaterConfig() {
+  if (state.configLoading) return;
+  state.configLoading = true;
+  try {
+    const schema = await sendCommand('config_schema');
+    const values = await sendCommand('config_get_all');
+    state.configKeys = schema?.payload?.all_keys || [];
+    state.configValues = values?.payload?.values || {};
+    state.configLoaded = true;
+    renderConfigRows();
+    setOutput('config-output', 'Loaded MeshCore config keys and values.');
+  } finally {
+    state.configLoading = false;
+  }
+}
+
+async function refreshRegions() {
+  const dump = await sendCommand('region_dump');
+  const allowed = await sendCommand('regions_allowed');
+  const denied = await sendCommand('regions_denied');
+  const home = await sendCommand('region_home_get');
+  const text = [
+    '=== HOME ===',
+    home?.payload?.reply || '-',
+    '',
+    '=== TREE ===',
+    dump?.payload?.reply || '-',
+    '',
+    '=== ALLOWED ===',
+    allowed?.payload?.reply || '-',
+    '',
+    '=== DENIED ===',
+    denied?.payload?.reply || '-',
+  ].join('\n');
+  setOutput('region-output', text);
+}
+
+async function setConfigKey(key, value) {
+  const data = await sendCommand('config_set', { key, value });
+  if (data?.ok) {
+    state.configValues[key] = value;
+    renderConfigRows();
+    setOutput('config-output', `set ${key} => ${value}\n${payloadToText(data.payload)}`);
+  }
+}
+
+function drawMetricsChart(snapshot) {
+  const canvas = document.getElementById('metrics-chart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const ratio = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth || 800;
+  const height = canvas.clientHeight || 160;
+  if (canvas.width !== Math.floor(width * ratio) || canvas.height !== Math.floor(height * ratio)) {
+    canvas.width = Math.floor(width * ratio);
+    canvas.height = Math.floor(height * ratio);
+  }
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const role = snapshot.role || 'companion';
+  const history = snapshot.history || {};
+  const x = history.ts || [];
+  const theme = getComputedStyle(document.documentElement);
+  const cAccent = (theme.getPropertyValue('--accent') || '#58a6ff').trim();
+  const cOk = (theme.getPropertyValue('--ok') || '#2ecc71').trim();
+  const cWarn = (theme.getPropertyValue('--warn') || '#f4c430').trim();
+  const cErr = (theme.getPropertyValue('--err') || '#ff6b6b').trim();
+  const cMuted = (theme.getPropertyValue('--muted') || '#90a2cc').trim();
+  if (x.length < 2) {
+    ctx.fillStyle = cMuted;
+    ctx.font = '12px system-ui';
+    ctx.fillText('Collecting metrics…', 12, 24);
+    return;
+  }
+
+  const pad = { left: 28, right: 12, top: 10, bottom: 18 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const tsMin = x[0];
+  const tsMax = x[x.length - 1];
+  const tsSpan = Math.max(1, tsMax - tsMin);
+
+  const series = role === 'repeater'
+    ? [
+      { key: 'rx', color: cAccent, label: 'RX' },
+      { key: 'tx', color: cOk, label: 'TX' },
+      { key: 'queue', color: cWarn, label: 'Queue' },
+      { key: 'cpu', color: cErr, label: 'CPU%' },
+    ]
+    : [
+      { key: 'rx', color: cAccent, label: 'RX' },
+      { key: 'tx', color: cOk, label: 'TX' },
+      { key: 'rssi', color: cWarn, label: 'RSSI' },
+      { key: 'snr', color: cErr, label: 'SNR' },
+    ];
+
+  let yMax = 1;
+  for (const s of series) {
+    const arr = history[s.key] || [];
+    for (const v of arr) {
+      if (Number.isFinite(v)) yMax = Math.max(yMax, Math.abs(v));
+    }
+  }
+
+  ctx.strokeStyle = cMuted;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top);
+  ctx.lineTo(pad.left, pad.top + plotH);
+  ctx.lineTo(pad.left + plotW, pad.top + plotH);
+  ctx.stroke();
+
+  for (const s of series) {
+    const arr = history[s.key] || [];
+    if (arr.length !== x.length || arr.length < 2) continue;
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < x.length; i += 1) {
+      const xv = pad.left + ((x[i] - tsMin) / tsSpan) * plotW;
+      const norm = Math.max(-1, Math.min(1, (arr[i] || 0) / yMax));
+      const yv = pad.top + plotH - ((norm + 1) / 2) * plotH;
+      if (i === 0) ctx.moveTo(xv, yv);
+      else ctx.lineTo(xv, yv);
+    }
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = cMuted;
+  ctx.font = '11px system-ui';
+  const legends = series.map((s) => s.label).join(' · ');
+  ctx.fillText(legends, pad.left + 4, pad.top + 12);
+}
+
 function renderMap(s) {
   const alive = new Set();
 
@@ -166,13 +346,21 @@ function render(snapshot) {
 
   const pubForm = document.getElementById('pub-form');
   const syncBtn = document.querySelector('[data-cmd="sync_time"]');
+  const repeaterTools = document.getElementById('repeater-tools');
   if (pubForm) pubForm.style.display = role === 'companion' ? 'grid' : 'none';
   if (syncBtn) syncBtn.style.display = 'inline-block';
+  if (repeaterTools) repeaterTools.style.display = role === 'repeater' ? 'block' : 'none';
+
+  if (role === 'repeater' && !state.configLoaded) {
+    loadRepeaterConfig().catch((err) => setOutput('config-output', String(err)));
+    refreshRegions().catch((err) => setOutput('region-output', String(err)));
+  }
 
   renderStatus(snapshot);
   renderContacts(snapshot);
   renderEvents(snapshot);
   renderMap(snapshot);
+  drawMetricsChart(snapshot);
 }
 
 function wireUi() {
@@ -203,6 +391,170 @@ function wireUi() {
       e.target.reset();
     }
   });
+
+  const neighborForm = document.getElementById('neighbor-form');
+  if (neighborForm) {
+    neighborForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pubkeyPrefix = e.target.elements.pubkey_prefix.value.trim();
+      if (pubkeyPrefix) {
+        await sendCommand('neighbor_remove', { pubkey_prefix: pubkeyPrefix });
+        e.target.reset();
+      }
+    });
+  }
+
+  const configRows = document.getElementById('config-rows');
+  if (configRows) {
+    configRows.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-config-set]');
+      if (!btn) return;
+      const key = btn.dataset.configSet;
+      const input = configRows.querySelector(`input[data-config-input="${CSS.escape(key)}"]`);
+      if (!input) return;
+      const value = input.value.trim();
+      if (!value) return;
+      await setConfigKey(key, value);
+    });
+  }
+
+  const loadConfigBtn = document.getElementById('load-config-btn');
+  if (loadConfigBtn) {
+    loadConfigBtn.addEventListener('click', async () => {
+      await loadRepeaterConfig();
+    });
+  }
+
+  const saveConfigBtn = document.getElementById('save-config-btn');
+  if (saveConfigBtn) {
+    saveConfigBtn.addEventListener('click', async () => {
+      const data = await sendCommand('config_save');
+      setOutput('config-output', payloadToText(data?.payload));
+    });
+  }
+
+  const configSetForm = document.getElementById('config-set-form');
+  if (configSetForm) {
+    configSetForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const key = e.target.elements.key.value.trim();
+      const value = e.target.elements.value.value.trim();
+      if (!key || !value) return;
+      await setConfigKey(key, value);
+      e.target.reset();
+    });
+  }
+
+  const refreshRegionsBtn = document.getElementById('refresh-regions-btn');
+  if (refreshRegionsBtn) {
+    refreshRegionsBtn.addEventListener('click', async () => {
+      await refreshRegions();
+    });
+  }
+
+  const saveRegionsBtn = document.getElementById('save-regions-btn');
+  if (saveRegionsBtn) {
+    saveRegionsBtn.addEventListener('click', async () => {
+      const data = await sendCommand('region_save');
+      setOutput('region-output', payloadToText(data?.payload));
+      await refreshRegions();
+    });
+  }
+
+  const regionHomeForm = document.getElementById('region-home-form');
+  if (regionHomeForm) {
+    regionHomeForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = e.target.elements.name.value.trim();
+      if (!name) return;
+      const data = await sendCommand('region_home_set', { name });
+      setOutput('region-output', payloadToText(data?.payload));
+      await refreshRegions();
+      e.target.reset();
+    });
+  }
+
+  const regionPutForm = document.getElementById('region-put-form');
+  if (regionPutForm) {
+    regionPutForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = e.target.elements.name.value.trim();
+      const parent = e.target.elements.parent.value.trim();
+      if (!name) return;
+      const data = await sendCommand('region_put', { name, parent });
+      setOutput('region-output', payloadToText(data?.payload));
+      await refreshRegions();
+      e.target.reset();
+    });
+  }
+
+  const regionRemoveForm = document.getElementById('region-remove-form');
+  if (regionRemoveForm) {
+    regionRemoveForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = e.target.elements.name.value.trim();
+      if (!name) return;
+      const data = await sendCommand('region_remove', { name });
+      setOutput('region-output', payloadToText(data?.payload));
+      await refreshRegions();
+      e.target.reset();
+    });
+  }
+
+  const regionFlagForm = document.getElementById('region-flag-form');
+  if (regionFlagForm) {
+    regionFlagForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const mode = e.target.elements.mode.value;
+      const name = e.target.elements.name.value.trim();
+      if (!name) return;
+      const cmd = mode === 'denyf' ? 'region_denyf' : 'region_allowf';
+      const data = await sendCommand(cmd, { name });
+      setOutput('region-output', payloadToText(data?.payload));
+      await refreshRegions();
+      e.target.reset();
+    });
+  }
+
+  const regionGetForm = document.getElementById('region-get-form');
+  if (regionGetForm) {
+    regionGetForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = e.target.elements.name.value.trim();
+      if (!name) return;
+      const data = await sendCommand('region_get', { name });
+      setOutput('region-output', payloadToText(data?.payload));
+    });
+  }
+
+  const regionLoadForm = document.getElementById('region-load-form');
+  if (regionLoadForm) {
+    regionLoadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = e.target.elements.name.value.trim();
+      const flood = e.target.elements.flood.checked;
+      if (!name) return;
+      const data = await sendCommand('region_load_named', { name, flood_flag: flood ? 'F' : '' });
+      setOutput('region-output', payloadToText(data?.payload));
+      await refreshRegions();
+      e.target.reset();
+    });
+  }
+
+  const rawForm = document.getElementById('raw-form');
+  if (rawForm) {
+    rawForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const cmd = e.target.elements.cmd.value.trim();
+      if (!cmd) return;
+      const data = await sendCommand('raw', { cmd });
+      const output = document.getElementById('raw-output');
+      if (output) {
+        const reply = data?.payload?.reply || '(no output)';
+        output.textContent = `$ ${cmd}\n${reply}`;
+      }
+    });
+  }
 }
 
 function connectEvents() {

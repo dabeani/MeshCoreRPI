@@ -45,6 +45,41 @@ PUSH_CODE_NEW_ADVERT = 0x8A
 
 APP_NAME = b"mc-webgui"
 _FLOAT_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
+_CONFIG_KEY_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
+_REGION_NAME_RE = re.compile(r"^[#*a-zA-Z0-9._-]+$")
+
+REPEATER_CONFIG_KEYS: dict[str, list[str]] = {
+    "radio": [
+        "radio",
+        "freq",
+        "tx",
+    ],
+    "system": [
+        "name",
+        "lat",
+        "lon",
+        "password",
+        "guest.password",
+        "owner.info",
+        "adc.multiplier",
+    ],
+    "routing": [
+        "repeat",
+        "txdelay",
+        "direct.txdelay",
+        "rxdelay",
+        "af",
+        "int.thresh",
+        "agc.reset.interval",
+        "multi.acks",
+        "flood.advert.interval",
+        "advert.interval",
+        "flood.max",
+    ],
+    "acl": [
+        "allow.read.only",
+    ],
+}
 
 
 def _decode_cstr(raw: bytes) -> str:
@@ -69,6 +104,29 @@ def _extract_float(value: str) -> float | None:
         return float(match.group(0))
     except ValueError:
         return None
+
+
+def _require_safe_config_key(value: str) -> str:
+    key = value.strip()
+    if not key or not _CONFIG_KEY_RE.fullmatch(key):
+        raise ValueError("invalid config key")
+    return key
+
+
+def _require_safe_region_name(value: str) -> str:
+    name = value.strip()
+    if not name or not _REGION_NAME_RE.fullmatch(name):
+        raise ValueError("invalid region name")
+    return name
+
+
+def _require_cli_value(value: Any) -> str:
+    text = str(value).strip()
+    if not text:
+        raise ValueError("value is required")
+    if "\n" in text or "\r" in text:
+        raise ValueError("value must be a single line")
+    return text
 
 
 @dataclass
@@ -97,6 +155,17 @@ class MeshState:
         self.stats: dict[str, Any] = {"core": {}, "radio": {}, "packets": {}}
         self.contacts: dict[str, Contact] = {}
         self.events: list[dict[str, Any]] = []
+        self.history: dict[str, list[float | int]] = {
+            "ts": [],
+            "rx": [],
+            "tx": [],
+            "drop": [],
+            "queue": [],
+            "rssi": [],
+            "snr": [],
+            "cpu": [],
+            "mem": [],
+        }
 
     def set_connected(self, connected: bool) -> None:
         with self._lock:
@@ -130,6 +199,17 @@ class MeshState:
             if pubkey in self.contacts:
                 self.contacts[pubkey].last_advert_timestamp = int(time.time())
 
+    def add_history_sample(self, sample: dict[str, float | int]) -> None:
+        with self._lock:
+            for key in self.history.keys():
+                if key in sample:
+                    self.history[key].append(sample[key])
+
+            max_points = 720
+            for key in self.history.keys():
+                if len(self.history[key]) > max_points:
+                    self.history[key] = self.history[key][-max_points:]
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             contacts = [
@@ -158,6 +238,7 @@ class MeshState:
                 "stats": self.stats,
                 "contacts": contacts,
                 "events": list(self.events[-100:]),
+                "history": {k: list(v) for k, v in self.history.items()},
             }
 
 
@@ -562,6 +643,29 @@ class RepeaterClient:
         self._update_radio(self.send_cli_command("stats-radio"))
         self._update_packets(self.send_cli_command("stats-packets"))
         self._update_neighbors(self.send_cli_command("neighbors"))
+
+        core = self.state.stats.get("core", {})
+        radio = self.state.stats.get("radio", {})
+        packets = self.state.stats.get("packets", {})
+        recv_count = int(packets.get("recv", 0))
+        sent_count = int(packets.get("sent", 0))
+        flood_rx = int(packets.get("flood_rx", 0))
+        direct_rx = int(packets.get("direct_rx", 0))
+        dropped = max(0, recv_count - (flood_rx + direct_rx)) if (flood_rx or direct_rx) else 0
+        self.state.add_history_sample(
+            {
+                "ts": int(time.time()),
+                "rx": recv_count,
+                "tx": sent_count,
+                "drop": dropped,
+                "queue": int(core.get("queue_len", 0)),
+                "rssi": float(radio.get("last_rssi", 0.0)),
+                "snr": float(radio.get("last_snr", 0.0)),
+                "cpu": float(core.get("cpu_usage_pct", 0.0)),
+                "mem": float(core.get("mem_usage_pct", 0.0)),
+            }
+        )
+
         if full:
             self._update_identity()
             radio_diag = self.send_cli_command("radio-diag")
@@ -806,6 +910,124 @@ class App:
             self.client.refresh(full=False)
             return {"reply": reply}
 
+        if name == "neighbor_remove":
+            pubkey_prefix = str(args.get("pubkey_prefix", "")).strip().lower()
+            if not pubkey_prefix:
+                raise ValueError("pubkey_prefix is required")
+            reply = self.client.send_cli_command(f"neighbor.remove {pubkey_prefix}")
+            self.client.refresh(full=False)
+            return {"pubkey_prefix": pubkey_prefix, "reply": reply}
+
+        if name == "get_radio":
+            reply = self.client.send_cli_command("get radio")
+            return {"reply": reply}
+
+        if name == "config_schema":
+            return {
+                "groups": REPEATER_CONFIG_KEYS,
+                "all_keys": [k for group in REPEATER_CONFIG_KEYS.values() for k in group],
+            }
+
+        if name == "config_get":
+            key = _require_safe_config_key(str(args.get("key", "")))
+            reply = self.client.send_cli_command(f"get {key}")
+            return {"key": key, "reply": reply}
+
+        if name == "config_get_all":
+            values: dict[str, str] = {}
+            for key in [k for group in REPEATER_CONFIG_KEYS.values() for k in group]:
+                values[key] = self.client.send_cli_command(f"get {key}")
+            return {"values": values}
+
+        if name == "config_set":
+            key = _require_safe_config_key(str(args.get("key", "")))
+            value = _require_cli_value(args.get("value", ""))
+            reply = self.client.send_cli_command(f"set {key} {value}")
+            self.state.add_event("config_set", {"key": key, "value": value, "reply": reply})
+            self.client.refresh(full=False)
+            return {"key": key, "value": value, "reply": reply}
+
+        if name == "config_save":
+            reply = self.client.send_cli_command("save")
+            self.state.add_event("config_save", {"reply": reply})
+            return {"reply": reply}
+
+        if name == "region_dump":
+            reply = self.client.send_cli_command("region")
+            home = self.client.send_cli_command("region home")
+            return {"reply": reply, "home": home}
+
+        if name == "region_home_set":
+            region_name = _require_safe_region_name(str(args.get("name", "")))
+            reply = self.client.send_cli_command(f"region home {region_name}")
+            self.state.add_event("region_home", {"name": region_name, "reply": reply})
+            return {"name": region_name, "reply": reply}
+
+        if name == "region_home_get":
+            reply = self.client.send_cli_command("region home")
+            return {"reply": reply}
+
+        if name == "region_put":
+            region_name = _require_safe_region_name(str(args.get("name", "")))
+            parent_name = str(args.get("parent", "")).strip()
+            if parent_name:
+                parent_name = _require_safe_region_name(parent_name)
+                reply = self.client.send_cli_command(f"region put {region_name} {parent_name}")
+            else:
+                reply = self.client.send_cli_command(f"region put {region_name}")
+            self.state.add_event("region_put", {"name": region_name, "parent": parent_name, "reply": reply})
+            return {"name": region_name, "parent": parent_name, "reply": reply}
+
+        if name == "region_remove":
+            region_name = _require_safe_region_name(str(args.get("name", "")))
+            reply = self.client.send_cli_command(f"region remove {region_name}")
+            self.state.add_event("region_remove", {"name": region_name, "reply": reply})
+            return {"name": region_name, "reply": reply}
+
+        if name == "region_get":
+            region_name = _require_safe_region_name(str(args.get("name", "")))
+            reply = self.client.send_cli_command(f"region get {region_name}")
+            return {"name": region_name, "reply": reply}
+
+        if name == "region_allowf":
+            region_name = _require_safe_region_name(str(args.get("name", "")))
+            reply = self.client.send_cli_command(f"region allowf {region_name}")
+            self.state.add_event("region_allowf", {"name": region_name, "reply": reply})
+            return {"name": region_name, "reply": reply}
+
+        if name == "region_denyf":
+            region_name = _require_safe_region_name(str(args.get("name", "")))
+            reply = self.client.send_cli_command(f"region denyf {region_name}")
+            self.state.add_event("region_denyf", {"name": region_name, "reply": reply})
+            return {"name": region_name, "reply": reply}
+
+        if name == "region_load_named":
+            region_name = _require_safe_region_name(str(args.get("name", "")))
+            flood_flag = str(args.get("flood_flag", "")).strip().upper()
+            if flood_flag == "F":
+                reply = self.client.send_cli_command(f"region load {region_name} F")
+            else:
+                reply = self.client.send_cli_command(f"region load {region_name}")
+            self.state.add_event("region_load", {"name": region_name, "flood_flag": flood_flag, "reply": reply})
+            return {"name": region_name, "flood_flag": flood_flag, "reply": reply}
+
+        if name == "region_save":
+            reply = self.client.send_cli_command("region save")
+            self.state.add_event("region_save", {"reply": reply})
+            return {"reply": reply}
+
+        if name == "regions_allowed":
+            reply = self.client.send_cli_command("region list allowed")
+            return {"reply": reply}
+
+        if name == "regions_denied":
+            reply = self.client.send_cli_command("region list denied")
+            return {"reply": reply}
+
+        if name == "get_logs":
+            snapshot = self.state.snapshot()
+            return {"logs": snapshot.get("events", [])[-100:]}
+
         if name == "raw":
             raw_cmd = str(args.get("cmd", "")).strip()
             if not raw_cmd:
@@ -846,10 +1068,22 @@ def main() -> None:
     parser.add_argument("--companion-port", type=int, default=int(os.getenv("RPI_COMPANION_TCP_PORT", "5000")))
     parser.add_argument("--repeater-host", default=os.getenv("RPI_REPEATER_TCP_HOST", "127.0.0.1"))
     parser.add_argument("--repeater-port", type=int, default=int(os.getenv("RPI_REPEATER_TCP_PORT", "5001")))
-    parser.add_argument("--bind-host", default=os.getenv("RPI_COMPANION_WEB_HOST", "0.0.0.0"))
-    parser.add_argument("--bind-port", type=int, default=int(os.getenv("RPI_COMPANION_WEB_PORT", "8080")))
+    parser.add_argument("--bind-host", default=None)
+    parser.add_argument("--bind-port", type=int, default=None)
     parser.add_argument("--static-dir", default=str(Path(__file__).with_name("webgui_static")))
     args = parser.parse_args()
+
+    if args.bind_host is None:
+        if args.role == "repeater":
+            args.bind_host = os.getenv("RPI_REPEATER_WEB_HOST", "0.0.0.0")
+        else:
+            args.bind_host = os.getenv("RPI_COMPANION_WEB_HOST", "0.0.0.0")
+
+    if args.bind_port is None:
+        if args.role == "repeater":
+            args.bind_port = int(os.getenv("RPI_REPEATER_WEB_PORT", "8081"))
+        else:
+            args.bind_port = int(os.getenv("RPI_COMPANION_WEB_PORT", "8080"))
 
     app = App(
         role=args.role,

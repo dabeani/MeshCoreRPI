@@ -31,6 +31,11 @@
         <div id="map"></div>
       </section>
 
+      <section class="panel chart-panel">
+        <h2>Metrics</h2>
+        <canvas id="metrics-chart" height="160"></canvas>
+      </section>
+
       <section class="panel control-panel">
         <h2>Quick Actions</h2>
         <form id="name-form" class="row-form">
@@ -69,6 +74,82 @@
       <section class="panel events-panel">
         <h2>Recent Events</h2>
         <ul id="events-list"></ul>
+      </section>
+
+      <section class="panel repeater-tools" id="repeater-tools" style="display:none;">
+        <h2>Repeater Tools</h2>
+        <div class="inline-actions">
+          <button id="load-config-btn" type="button">Load Config</button>
+          <button id="save-config-btn" type="button">Save Config</button>
+          <button id="refresh-regions-btn" type="button">Refresh Regions</button>
+          <button id="save-regions-btn" type="button">Save Regions</button>
+        </div>
+
+        <h3>Configuration</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Current</th>
+                <th>New Value</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="config-rows"></tbody>
+          </table>
+        </div>
+
+        <form id="config-set-form" class="row-form row-form-3">
+          <input name="key" placeholder="Config key (eg: txdelay)" />
+          <input name="value" placeholder="Value" />
+          <button type="submit">Set Key</button>
+        </form>
+
+        <h3>Regions (MeshCore Native)</h3>
+        <form id="region-home-form" class="row-form">
+          <input name="name" placeholder="Home region (eg: #Europe)" />
+          <button type="submit">Set Home</button>
+        </form>
+        <form id="region-put-form" class="row-form row-form-3">
+          <input name="name" placeholder="Region name" />
+          <input name="parent" placeholder="Parent region (optional)" />
+          <button type="submit">Create Region</button>
+        </form>
+        <form id="region-remove-form" class="row-form">
+          <input name="name" placeholder="Region to remove" />
+          <button type="submit">Remove Region</button>
+        </form>
+        <form id="region-flag-form" class="row-form row-form-4">
+          <select name="mode">
+            <option value="allowf">Allow Flood</option>
+            <option value="denyf">Deny Flood</option>
+          </select>
+          <input name="name" placeholder="Region name" />
+          <button type="submit">Apply Flag</button>
+        </form>
+        <form id="region-get-form" class="row-form">
+          <input name="name" placeholder="Region to inspect" />
+          <button type="submit">Get Region</button>
+        </form>
+        <form id="region-load-form" class="row-form row-form-4">
+          <input name="name" placeholder="Load named region" />
+          <label class="flag-checkbox"><input type="checkbox" name="flood" /> Flood (F)</label>
+          <button type="submit">Load Named Region</button>
+        </form>
+
+        <div id="config-output" class="mono-box"></div>
+        <div id="region-output" class="mono-box"></div>
+
+        <form id="neighbor-form" class="row-form">
+          <input name="pubkey_prefix" placeholder="Neighbor pubkey prefix (hex)" />
+          <button type="submit">Remove Neighbor</button>
+        </form>
+        <form id="raw-form" class="row-form">
+          <input name="cmd" placeholder="Run raw CLI command (eg: radio-diag)" />
+          <button type="submit">Run</button>
+        </form>
+        <div id="raw-output" class="mono-box"></div>
       </section>
     </main>
 

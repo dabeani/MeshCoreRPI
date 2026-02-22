@@ -60,11 +60,19 @@ button:hover { border-color: var(--accent); }
 
 .stats { grid-column: span 4; }
 .map-panel { grid-column: span 8; }
+.chart-panel { grid-column: span 12; }
 .control-panel { grid-column: span 4; }
 .contacts-panel { grid-column: span 8; }
 .events-panel { grid-column: span 12; }
+.repeater-tools { grid-column: span 12; }
 
 #map { height: 420px; border-radius: 10px; overflow: hidden; }
+#metrics-chart {
+  width: 100%;
+  background: #0f1730;
+  border: 1px solid #223056;
+  border-radius: 8px;
+}
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .stat {
   background: #0f1730;
@@ -76,7 +84,9 @@ button:hover { border-color: var(--accent); }
 .stat .value { font-weight: 600; }
 
 .row-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 8px; }
-.row-form:nth-of-type(2) { grid-template-columns: 1fr 1fr auto; }
+#loc-form { grid-template-columns: 1fr 1fr auto; }
+.row-form-3 { grid-template-columns: 1fr 1fr auto; }
+.row-form-4 { grid-template-columns: auto 1fr auto; }
 input {
   width: 100%;
   border-radius: 8px;
@@ -84,6 +94,34 @@ input {
   background: #0f1730;
   color: var(--text);
   padding: 8px 10px;
+}
+select {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #2a3d6b;
+  background: #0f1730;
+  color: var(--text);
+  padding: 8px 10px;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.flag-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#config-output,
+#region-output {
+  margin-bottom: 8px;
 }
 
 .table-wrap { overflow-x: auto; }
@@ -102,6 +140,19 @@ th { color: var(--muted); font-weight: 500; }
 .badge { padding: 1px 8px; border-radius: 999px; font-size: 11px; }
 .badge.ok { background: rgba(46, 204, 113, 0.2); color: #98f0be; }
 .badge.err { background: rgba(255, 107, 107, 0.2); color: #ffb3b3; }
+
+.mono-box {
+  min-height: 64px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  border: 1px solid #2a3d6b;
+  border-radius: 8px;
+  background: #0f1730;
+  padding: 8px;
+}
 
 @media (max-width: 1100px) {
   .stats, .map-panel, .control-panel, .contacts-panel, .events-panel { grid-column: span 12; }
