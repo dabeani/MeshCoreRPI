@@ -51,8 +51,8 @@ rm -rf "$PKG_ROOT"
 mkdir -p \
   "$PKG_ROOT/DEBIAN" \
   "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}" \
+  "$PKG_ROOT/usr/share/raspberrypimc" \
   "$PKG_ROOT/usr/bin" \
-  "$PKG_ROOT/etc/raspberrypimc" \
   "$PKG_ROOT/lib/systemd/system"
 
 cp "$BIN_PATH" "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/program"
@@ -123,9 +123,9 @@ EOF
 chmod 0755 "$PKG_ROOT/usr/bin/raspberrypimc-${ROLE}"
 
 if [[ -f "$SCRIPT_DIR/.env.example" ]]; then
-  cp "$SCRIPT_DIR/.env.example" "$PKG_ROOT/etc/raspberrypimc/${ROLE}.env"
+  cp "$SCRIPT_DIR/.env.example" "$PKG_ROOT/usr/share/raspberrypimc/${ROLE}.env.example"
 else
-  cat > "$PKG_ROOT/etc/raspberrypimc/${ROLE}.env" <<EOF
+  cat > "$PKG_ROOT/usr/share/raspberrypimc/${ROLE}.env.example" <<EOF
 RPI_FREQ_HZ=869525000
 RPI_SF=11
 RPI_BW_HZ=250000
@@ -147,7 +147,7 @@ RPI_USE_TCXO=0
 RPI_USE_DIO2_RF=0
 EOF
 fi
-chmod 0644 "$PKG_ROOT/etc/raspberrypimc/${ROLE}.env"
+chmod 0644 "$PKG_ROOT/usr/share/raspberrypimc/${ROLE}.env.example"
 
 cat > "$PKG_ROOT/lib/systemd/system/raspberrypimc-${ROLE}.service" <<EOF
 [Unit]
@@ -184,6 +184,12 @@ if ! id -u raspberrypimc >/dev/null 2>&1; then
   useradd --system --no-create-home --shell /usr/sbin/nologin raspberrypimc || true
 fi
 mkdir -p /var/lib/raspberrypimc/userdata || true
+mkdir -p /etc/raspberrypimc || true
+if [[ ! -f /etc/raspberrypimc/${ROLE}.env ]]; then
+  if [[ -f /usr/share/raspberrypimc/${ROLE}.env.example ]]; then
+    cp /usr/share/raspberrypimc/${ROLE}.env.example /etc/raspberrypimc/${ROLE}.env || true
+  fi
+fi
 chown -R raspberrypimc:raspberrypimc /var/lib/raspberrypimc || true
 chown -R raspberrypimc:raspberrypimc /etc/raspberrypimc || true
 systemctl daemon-reload || true
