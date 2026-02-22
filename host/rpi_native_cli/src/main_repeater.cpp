@@ -487,7 +487,10 @@ int main(int argc, char** argv) {
         });
       }
 #endif
-      the_mesh.loop();
+      {
+        std::lock_guard<std::mutex> lock(command_mutex);
+        the_mesh.loop();
+      }
       sensors.loop();
       rtc_clock.tick();
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
