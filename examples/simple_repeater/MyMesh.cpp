@@ -519,20 +519,36 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
 #endif
 
   if (_logging) {
+    const char* route = pkt->isRouteDirect() ? "D" : "F";
+    const int payload_type = pkt->getPayloadType();
+    const int payload_len = pkt->payload_len;
+    const int snr = (int)_radio->getLastSNR();
+    const int rssi = (int)_radio->getLastRSSI();
+    const int score_i = (int)(score * 1000);
+
     File f = openAppend(PACKET_LOG_FILE);
     if (f) {
       f.print(getLogDateTime());
       f.printf(": RX, len=%d (type=%d, route=%s, payload_len=%d) SNR=%d RSSI=%d score=%d", len,
-               pkt->getPayloadType(), pkt->isRouteDirect() ? "D" : "F", pkt->payload_len,
-               (int)_radio->getLastSNR(), (int)_radio->getLastRSSI(), (int)(score * 1000));
+               payload_type, route, payload_len, snr, rssi, score_i);
 
-      if (pkt->getPayloadType() == PAYLOAD_TYPE_PATH || pkt->getPayloadType() == PAYLOAD_TYPE_REQ ||
-          pkt->getPayloadType() == PAYLOAD_TYPE_RESPONSE || pkt->getPayloadType() == PAYLOAD_TYPE_TXT_MSG) {
+      if (payload_type == PAYLOAD_TYPE_PATH || payload_type == PAYLOAD_TYPE_REQ ||
+          payload_type == PAYLOAD_TYPE_RESPONSE || payload_type == PAYLOAD_TYPE_TXT_MSG) {
         f.printf(" [%02X -> %02X]\n", (uint32_t)pkt->payload[1], (uint32_t)pkt->payload[0]);
       } else {
         f.printf("\n");
       }
       f.close();
+    }
+
+    Serial.print(getLogDateTime());
+    Serial.printf(": RX, len=%d (type=%d, route=%s, payload_len=%d) SNR=%d RSSI=%d score=%d", len,
+                  payload_type, route, payload_len, snr, rssi, score_i);
+    if (payload_type == PAYLOAD_TYPE_PATH || payload_type == PAYLOAD_TYPE_REQ ||
+        payload_type == PAYLOAD_TYPE_RESPONSE || payload_type == PAYLOAD_TYPE_TXT_MSG) {
+      Serial.printf(" [%02X -> %02X]\n", (uint32_t)pkt->payload[1], (uint32_t)pkt->payload[0]);
+    } else {
+      Serial.println();
     }
   }
 }
@@ -545,32 +561,54 @@ void MyMesh::logTx(mesh::Packet *pkt, int len) {
 #endif
 
   if (_logging) {
+    const char* route = pkt->isRouteDirect() ? "D" : "F";
+    const int payload_type = pkt->getPayloadType();
+    const int payload_len = pkt->payload_len;
+
     File f = openAppend(PACKET_LOG_FILE);
     if (f) {
       f.print(getLogDateTime());
-      f.printf(": TX, len=%d (type=%d, route=%s, payload_len=%d)", len, pkt->getPayloadType(),
-               pkt->isRouteDirect() ? "D" : "F", pkt->payload_len);
+      f.printf(": TX, len=%d (type=%d, route=%s, payload_len=%d)", len, payload_type,
+               route, payload_len);
 
-      if (pkt->getPayloadType() == PAYLOAD_TYPE_PATH || pkt->getPayloadType() == PAYLOAD_TYPE_REQ ||
-          pkt->getPayloadType() == PAYLOAD_TYPE_RESPONSE || pkt->getPayloadType() == PAYLOAD_TYPE_TXT_MSG) {
+      if (payload_type == PAYLOAD_TYPE_PATH || payload_type == PAYLOAD_TYPE_REQ ||
+          payload_type == PAYLOAD_TYPE_RESPONSE || payload_type == PAYLOAD_TYPE_TXT_MSG) {
         f.printf(" [%02X -> %02X]\n", (uint32_t)pkt->payload[1], (uint32_t)pkt->payload[0]);
       } else {
         f.printf("\n");
       }
       f.close();
     }
+
+    Serial.print(getLogDateTime());
+    Serial.printf(": TX, len=%d (type=%d, route=%s, payload_len=%d)", len, payload_type,
+                  route, payload_len);
+    if (payload_type == PAYLOAD_TYPE_PATH || payload_type == PAYLOAD_TYPE_REQ ||
+        payload_type == PAYLOAD_TYPE_RESPONSE || payload_type == PAYLOAD_TYPE_TXT_MSG) {
+      Serial.printf(" [%02X -> %02X]\n", (uint32_t)pkt->payload[1], (uint32_t)pkt->payload[0]);
+    } else {
+      Serial.println();
+    }
   }
 }
 
 void MyMesh::logTxFail(mesh::Packet *pkt, int len) {
   if (_logging) {
+    const char* route = pkt->isRouteDirect() ? "D" : "F";
+    const int payload_type = pkt->getPayloadType();
+    const int payload_len = pkt->payload_len;
+
     File f = openAppend(PACKET_LOG_FILE);
     if (f) {
       f.print(getLogDateTime());
-      f.printf(": TX FAIL!, len=%d (type=%d, route=%s, payload_len=%d)\n", len, pkt->getPayloadType(),
-               pkt->isRouteDirect() ? "D" : "F", pkt->payload_len);
+      f.printf(": TX FAIL!, len=%d (type=%d, route=%s, payload_len=%d)\n", len, payload_type,
+               route, payload_len);
       f.close();
     }
+
+    Serial.print(getLogDateTime());
+    Serial.printf(": TX FAIL!, len=%d (type=%d, route=%s, payload_len=%d)\n", len, payload_type,
+                  route, payload_len);
   }
 }
 
