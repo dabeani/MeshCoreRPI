@@ -23,6 +23,48 @@ Reference hardware settings (recommended to mirror in env files):
 	- `/etc/raspberrypimc/repeater.env`
 	- `/etc/raspberrypimc/companion.env`
 
+### Runtime configuration options (`/etc/raspberrypimc/*.env`)
+
+Core radio/runtime keys:
+
+```dotenv
+RPI_FREQ_HZ=869618000
+RPI_SF=8
+RPI_BW_HZ=62500
+RPI_CR=8
+RPI_TX_DBM=22
+
+# Radio backend selector
+RPI_RADIO_DRIVER=sx1262   # or: sx127x
+
+# SPI device node prefix (default: /dev/spidev)
+RPI_SPI_DEV_PREFIX=/dev/spidev
+
+RPI_SPI_BUS=0
+RPI_SPI_CS=0
+RPI_SPI_SPEED_HZ=1000000
+RPI_CS_PIN=21
+RPI_RESET_PIN=18
+RPI_BUSY_PIN=20
+RPI_IRQ_PIN=16
+RPI_TXEN_PIN=13
+RPI_RXEN_PIN=12
+
+RPI_USE_TCXO=0
+RPI_USE_DIO2_RF=0
+```
+
+Notes:
+
+- If `RPI_RADIO_DRIVER` is unset, default is `sx1262`.
+- If `RPI_SPI_DEV_PREFIX` is unset, default is `/dev/spidev`.
+- After changing env values, restart the service:
+
+```bash
+sudo systemctl restart raspberrypimc-repeater.service
+sudo systemctl restart raspberrypimc-companion.service
+```
+
 ### 1) Binary install prerequisites
 
 ```bash
@@ -104,6 +146,8 @@ systemctl status raspberrypimc-companion.service --no-pager
 ```bash
 /usr/lib/raspberrypimc/companion/program \
 	--freq 869618000 --sf 8 --bw 62500 --cr 8 --tx 22 \
+	--radio-driver sx1262 \
+	--spi-dev-prefix /dev/spidev \
 	--spi-bus 0 --spi-cs 0 --cs-pin 21 --spi-speed 1000000 \
 	--reset-pin 18 --busy-pin 20 --irq-pin 16 --txen-pin 13 --rxen-pin 12 \
 	--no-tcxo --no-dio2-rf
