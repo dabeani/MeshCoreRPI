@@ -129,6 +129,40 @@ These map to runtime flags equivalent to:
 
 `--radio-driver sx1262 --spi-dev-prefix /dev/spidev --cs-pin 21 --txen-pin 13 --rxen-pin 12 --no-tcxo --no-dio2-rf`
 
+Config file loading and precedence:
+
+- Repeater binary reads `/etc/raspberrypimc/repeater.env` on startup.
+- Companion binary reads `/etc/raspberrypimc/companion.env` on startup.
+- Optional override for either role: `RPI_CONFIG_FILE=/path/to/custom.env`.
+- Role config file values are applied as effective startup runtime values.
+
+Startup verification output:
+
+- `startup-config: ...` (interpreted values)
+- `radio-diag: {...}` (radio diagnostic JSON)
+
+These appear on startup and are the recommended way to verify `RPI_SPI_DEV_PREFIX`, pin values, speed, driver, and radio parameters.
+
+Package behavior for config files:
+
+- Existing `/etc/raspberrypimc/repeater.env` and `/etc/raspberrypimc/companion.env` are preserved on upgrade.
+- Default templates are provided as:
+	- `/usr/share/raspberrypimc/repeater.env.example`
+	- `/usr/share/raspberrypimc/companion.env.example`
+- If role env file is missing, package post-install creates it from the matching example.
+
+Compile-time options (rebuild required):
+
+- `MAX_CONTACTS`
+- `MAX_GROUP_CHANNELS`
+- `MESH_DEBUG`
+- `MESH_PACKET_LOGGING`
+
+For native RaspberryPiMC, configure these in `platformio.ini` under:
+
+- `[env:RaspberryPiMC_native_repeater]`
+- `[env:RaspberryPiMC_native_companion]`
+
 ### 2b) Persistent autostart on boot (repeater only)
 
 If you only want the repeater to auto-start after reboot:

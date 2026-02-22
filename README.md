@@ -58,12 +58,54 @@ Notes:
 
 - If `RPI_RADIO_DRIVER` is unset, default is `sx1262`.
 - If `RPI_SPI_DEV_PREFIX` is unset, default is `/dev/spidev`.
+- Repeater/Companion binaries now read role config files directly on startup:
+	- repeater: `/etc/raspberrypimc/repeater.env`
+	- companion: `/etc/raspberrypimc/companion.env`
+- Optional override for both binaries: `RPI_CONFIG_FILE=/path/to/custom.env`.
+- Role config file values are applied as effective runtime values at startup.
 - After changing env values, restart the service:
 
 ```bash
 sudo systemctl restart raspberrypimc-repeater.service
 sudo systemctl restart raspberrypimc-companion.service
 ```
+
+### Startup diagnostics (config verification)
+
+On startup, both native binaries print:
+
+- `startup-config: ...` (interpreted effective values)
+- `radio-diag: {...}` (current radio diagnostic JSON)
+
+Use these lines to verify values such as `RPI_SPI_DEV_PREFIX`, pins, speed, and radio driver immediately after start.
+
+### Package config-file behavior
+
+Package install/upgrade does **not** overwrite existing files:
+
+- `/etc/raspberrypimc/repeater.env`
+- `/etc/raspberrypimc/companion.env`
+
+Defaults are shipped as examples:
+
+- `/usr/share/raspberrypimc/repeater.env.example`
+- `/usr/share/raspberrypimc/companion.env.example`
+
+If a role env file is missing, package post-install creates it from the matching example.
+
+### Build-time limits/debug options (PlatformIO)
+
+These are compile-time options (rebuild required after changes):
+
+- `MAX_CONTACTS`
+- `MAX_GROUP_CHANNELS`
+- `MESH_DEBUG`
+- `MESH_PACKET_LOGGING`
+
+For RaspberryPiMC native targets, set them in `platformio.ini` under:
+
+- `[env:RaspberryPiMC_native_repeater]`
+- `[env:RaspberryPiMC_native_companion]`
 
 ### SX127x quick-start profile
 
