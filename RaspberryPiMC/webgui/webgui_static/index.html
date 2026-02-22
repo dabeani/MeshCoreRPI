@@ -138,14 +138,21 @@
         <div class="panel">
           <div class="panel-header">
             <h2>Contacts &amp; Neighbors</h2>
-            <input id="contact-search" class="search-input" placeholder="Filter by name or key…" />
+            <input id="contact-search" class="search-input" placeholder="Search name / key…" />
+          </div>
+          <div class="type-filter-bar">
+            <button class="type-btn active" data-kind="all">All</button>
+            <button class="type-btn" data-kind="1">Clients</button>
+            <button class="type-btn" data-kind="2">Repeaters</button>
+            <button class="type-btn" data-kind="3">Servers</button>
+            <button class="type-btn" data-kind="4">Sensors</button>
           </div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Name</th><th>Type</th><th>Public Key</th>
-                  <th>Location</th><th>SNR / Path</th>
+                  <th>Location</th><th>SNR</th><th>Path / Hops</th>
                   <th>Last Seen</th><th>Action</th>
                 </tr>
               </thead>
@@ -303,17 +310,24 @@
       <section id="tab-logs" class="tab-pane" role="tabpanel">
         <div class="panel">
           <div class="panel-header">
-            <h2>Event Log</h2>
+            <h2>Packet &amp; Event Log</h2>
             <div class="inline-actions">
-              <input id="log-filter" class="search-input" placeholder="Filter events…" />
+              <div class="type-filter-bar compact">
+                <button class="type-btn active" data-log-filter="all">All</button>
+                <button class="type-btn" data-log-filter="pkt">RX/TX</button>
+                <button class="type-btn" data-log-filter="advert">Adverts</button>
+                <button class="type-btn" data-log-filter="system">System</button>
+              </div>
+              <input id="log-filter" class="search-input" placeholder="Search…" />
               <button id="btn-clear-log">Clear</button>
             </div>
           </div>
           <div class="log-container">
             <table class="log-table">
               <thead><tr>
+                <th style="width:16px"></th>
                 <th style="width:130px">Time</th>
-                <th style="width:130px">Type</th>
+                <th style="width:120px">Type</th>
                 <th>Details</th>
               </tr></thead>
               <tbody id="log-body"></tbody>

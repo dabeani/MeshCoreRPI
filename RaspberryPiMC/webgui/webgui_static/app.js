@@ -10,18 +10,28 @@ const app = {
   configLoaded: false,
   mapFitted: false,
   activeTab: 'dashboard',
+  contactTypeFilter: 'all',
+  logTypeFilter: 'all',
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
 const mcMap = L.map('map', { zoomControl: true }).setView([20, 0], 2);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+// Dark CartoDB tiles to match pyMC style
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
 }).addTo(mcMap);
+const lineLayer   = L.layerGroup().addTo(mcMap);  // paths drawn below markers
 const markerLayer = L.layerGroup().addTo(mcMap);
 
-function makeMarkerIcon(cls) {
-  return L.divIcon({ className: cls, iconSize: [14, 14], iconAnchor: [7, 7] });
+function markerIconForKind(kind, isSelf) {
+  if (isSelf) return L.divIcon({ className: 'mc-icon mc-icon-self',     iconSize: [20, 20], iconAnchor: [10, 10] });
+  switch (kind) {
+    case 2:  return L.divIcon({ className: 'mc-icon mc-icon-repeater', iconSize: [16, 16], iconAnchor: [8,  8]  });
+    case 3:  return L.divIcon({ className: 'mc-icon mc-icon-server',   iconSize: [14, 14], iconAnchor: [7,  7]  });
+    case 4:  return L.divIcon({ className: 'mc-icon mc-icon-sensor',   iconSize: [12, 12], iconAnchor: [6,  6]  });
+    default: return L.divIcon({ className: 'mc-icon mc-icon-client',   iconSize: [12, 12], iconAnchor: [6,  6]  });
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────
@@ -168,17 +178,19 @@ function renderStatCards(snap) {
 // ─── Map Update ──────────────────────────────────────
 function updateMap(snap) {
   markerLayer.clearLayers();
+  lineLayer.clearLayers();
   const bounds = [];
 
-  // Self node
+  // Self node — lower threshold so even ~10m GPS drift shows
   const si = snap.self_info || {};
   const selfLat = si.adv_lat, selfLon = si.adv_lon;
-  if (Number.isFinite(selfLat) && Number.isFinite(selfLon) &&
-      (Math.abs(selfLat) > 0.001 || Math.abs(selfLon) > 0.001)) {
-    const m = L.marker([selfLat, selfLon], { icon: makeMarkerIcon('mc-self-icon'), zIndexOffset: 100 });
+  const selfOnMap = Number.isFinite(selfLat) && Number.isFinite(selfLon) &&
+                    (Math.abs(selfLat) > 0.0001 || Math.abs(selfLon) > 0.0001);
+  if (selfOnMap) {
+    const m = L.marker([selfLat, selfLon], { icon: markerIconForKind(null, true), zIndexOffset: 100 });
     m.bindPopup(
       `<div style="min-width:160px"><b>${si.name || 'This Node'}</b><br>` +
-      `<span style="color:#58a6ff">Self</span><br>` +
+      `<span style="color:#58a6ff">Self (${snap.role || 'unknown'})</span><br>` +
       `${selfLat.toFixed(5)}, ${selfLon.toFixed(5)}</div>`
     );
     m.addTo(markerLayer);
@@ -187,19 +199,39 @@ function updateMap(snap) {
 
   // Contacts / neighbors with location
   let onMap = 0;
+  const kindCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
   for (const c of (snap.contacts || [])) {
+    const k = c.kind || 1;
+    kindCounts[k] = (kindCounts[k] || 0) + 1;
+
     if (!hasLoc(c)) continue;
     onMap++;
-    const m = L.marker([c.lat, c.lon], { icon: makeMarkerIcon('mc-node-icon') });
+    const m = L.marker([c.lat, c.lon], { icon: markerIconForKind(k, false) });
+    const hops = c.out_path_len;
+    const hopStr = (hops === 0 || hops === null || hops === undefined)
+      ? 'Direct' : (hops < 255 ? `${hops} hop${hops !== 1 ? 's' : ''}` : '–');
+    const snrStr = c.snr != null ? ` · SNR ${c.snr} dB` : '';
     m.bindPopup(
       `<div style="min-width:160px"><b>${c.name || c.pubkey.slice(0, 12)}</b><br>` +
-      `<span style="color:#2ecc71">${contactKindStr(c.kind, snap.role)}</span><br>` +
+      `<span style="color:#2ecc71">${contactKindStr(c.kind, snap.role)}</span> · ${hopStr}${snrStr}<br>` +
       `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}<br>` +
       `Last: ${fmtTime(c.last_advert_timestamp)}<br>` +
       `<small style="color:#7a8fc7">${c.pubkey.slice(0,16)}…</small></div>`
     );
     m.addTo(markerLayer);
     bounds.push([c.lat, c.lon]);
+
+    // Draw path polyline from self to contact (only when we know self pos)
+    if (selfOnMap) {
+      const hopsN = (hops === null || hops === undefined) ? 255 : hops;
+      let lineOpts;
+      if (hopsN === 0)      lineOpts = { color: '#00ff88', weight: 2.5, opacity: 0.8 };
+      else if (hopsN <= 2)  lineOpts = { color: '#58a6ff', weight: 2.0, opacity: 0.7, dashArray: '6,4' };
+      else if (hopsN < 255) lineOpts = { color: '#f4c430', weight: 1.5, opacity: 0.6, dashArray: '4,6' };
+      if (lineOpts) {
+        L.polyline([[selfLat, selfLon], [c.lat, c.lon]], lineOpts).addTo(lineLayer);
+      }
+    }
   }
 
   const total = (snap.contacts || []).length;
@@ -346,15 +378,23 @@ function drawChart(canvas, ts, series) {
   }
 }
 
+// Convert a cumulative series to per-interval deltas (for traffic rate charts)
+function toDelta(arr) {
+  if (!arr || arr.length < 2) return arr || [];
+  const out = [0];
+  for (let i = 1; i < arr.length; i++) out.push(Math.max(0, (arr[i] ?? 0) - (arr[i-1] ?? 0)));
+  return out;
+}
+
 function renderCharts(snap) {
   const h = snap?.history || {};
   const ts = h.ts || [];
 
-  // 1. Packet traffic: RX, TX, Drop
+  // 1. Packet traffic: show per-interval deltas so chart stays "live"
   drawChart(document.getElementById('chart-traffic'), ts, [
-    { label: 'RX Packets', data: h.rx,   color: '#58a6ff', fill: true },
-    { label: 'TX Packets', data: h.tx,   color: '#2ecc71' },
-    { label: 'Dropped',    data: h.drop, color: '#ff6b6b', dash: [4, 3] },
+    { label: 'RX/interval',   data: toDelta(h.rx),   color: '#58a6ff', fill: true },
+    { label: 'TX/interval',   data: toDelta(h.tx),   color: '#2ecc71' },
+    { label: 'Drop/interval', data: toDelta(h.drop), color: '#ff6b6b', dash: [4, 3] },
   ]);
 
   // 2. Signal quality: RSSI & Noise Floor (both dBm — same axis is meaningful)
@@ -373,24 +413,43 @@ function renderCharts(snap) {
 // ─── Contacts Table ──────────────────────────────────
 function renderContacts(snap, filter = '') {
   const role = snap.role || 'companion';
-  const contacts = (snap.contacts || []).filter(c => {
+  const kindFilter = app.contactTypeFilter;
+
+  // Update button counts
+  const allContacts = snap.contacts || [];
+  const kindMap = { '1': 0, '2': 0, '3': 0, '4': 0 };
+  for (const c of allContacts) kindMap[String(c.kind || 1)]++;
+  document.querySelectorAll('.type-btn[data-kind]').forEach(btn => {
+    const k = btn.dataset.kind;
+    if (k === 'all') btn.textContent = `All (${allContacts.length})`;
+    else btn.textContent = {
+      '1': `Clients (${kindMap['1']})`,
+      '2': `Repeaters (${kindMap['2']})`,
+      '3': `Servers (${kindMap['3']})`,
+      '4': `Sensors (${kindMap['4']})`,
+    }[k] || k;
+  });
+
+  const contacts = allContacts.filter(c => {
+    if (kindFilter !== 'all' && String(c.kind || 1) !== kindFilter) return false;
     if (!filter) return true;
     const q = filter.toLowerCase();
     return (c.name || '').toLowerCase().includes(q) || c.pubkey.toLowerCase().includes(q);
   });
+
   const tbody = document.getElementById('contacts-body');
   if (!tbody) return;
   if (!contacts.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No contacts found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No contacts found</td></tr>`;
     return;
   }
   tbody.innerHTML = contacts.slice(0, 250).map(c => {
-    const loc     = hasLoc(c) ? `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}` : '–';
-    const hops    = c.out_path_len;
-    const snrPath = role === 'companion'
-      ? (hops === 0 ? 'direct' : (hops > 0 && hops < 255) ? `${hops} hop${hops !== 1 ? 's' : ''}` : '–')
-      : '–';
-    const kind = contactKindStr(c.kind, role);
+    const loc    = hasLoc(c) ? `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}` : '–';
+    const hops   = c.out_path_len;
+    const hopStr = (hops === 0) ? 'Direct'
+                 : (hops > 0 && hops < 255) ? `${hops} hop${hops !== 1 ? 's' : ''}` : '–';
+    const snrStr = c.snr != null ? `${c.snr} dB` : '–';
+    const kind   = contactKindStr(c.kind, role);
     const locateBtn = hasLoc(c)
       ? `<button class="btn-sm" onclick="locateContact(${c.lat.toFixed(6)},${c.lon.toFixed(6)})">Locate</button>`
       : '';
@@ -402,7 +461,8 @@ function renderContacts(snap, filter = '') {
       <td>${kind}</td>
       <td title="${c.pubkey}" style="font-family:monospace;font-size:11px">${c.pubkey.slice(0, 16)}…</td>
       <td>${loc}</td>
-      <td>${snrPath}</td>
+      <td>${snrStr}</td>
+      <td>${hopStr}</td>
       <td>${fmtTime(c.last_advert_timestamp)}</td>
       <td style="white-space:nowrap">${locateBtn}${removeBtn ? ' ' + removeBtn : ''}</td>
     </tr>`;
@@ -457,27 +517,72 @@ function renderEvents(events) {
 function renderLog(events, filter = '') {
   const tbody = document.getElementById('log-body');
   if (!tbody) return;
+
+  const catFilter = app.logTypeFilter;
+  const categoryMatches = type => {
+    if (catFilter === 'all')    return true;
+    if (catFilter === 'pkt')    return type === 'pkt_rx' || type === 'pkt_tx';
+    if (catFilter === 'advert') return type === 'rx_advert' || type === 'neighbor_new';
+    if (catFilter === 'system') return /^(connected|error|reboot|config_set|config_save|self_info)$/.test(type);
+    return true;
+  };
+
   const filtered = [...events].reverse().filter(e => {
+    if (!categoryMatches(e.type)) return false;
     if (!filter) return true;
     const q = filter.toLowerCase();
     return e.type.toLowerCase().includes(q) ||
       JSON.stringify(e.payload || {}).toLowerCase().includes(q);
   });
+
   if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--muted)">No events</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted)">No events</td></tr>`;
     return;
   }
-  const typeClass = t => {
-    if (/error|fail/i.test(t)) return 'err';
-    if (/config|save|set/i.test(t)) return 'cfg';
-    if (/warn|mode/i.test(t)) return 'warn';
+
+  const badgeClass = type => {
+    if (type === 'pkt_rx' || type === 'rx_advert') return 'rx';
+    if (type === 'pkt_tx')                          return 'tx';
+    if (type === 'neighbor_new')                    return 'adv';
+    if (/error|fail/i.test(type))                   return 'err';
+    if (/config|save|set/i.test(type))              return 'cfg';
+    if (/warn|mode/i.test(type))                    return 'warn';
     return '';
   };
-  tbody.innerHTML = filtered.slice(0, 400).map(e =>
+
+  const dirCell = type => {
+    if (type === 'pkt_rx' || type === 'rx_advert') return `<td class="log-dir rx">↓</td>`;
+    if (type === 'pkt_tx')                          return `<td class="log-dir tx">↑</td>`;
+    return `<td></td>`;
+  };
+
+  const detailStr = e => {
+    const p = e.payload || {};
+    if (e.type === 'pkt_rx') {
+      const parts = [];
+      if (p.rssi  != null) parts.push(`RSSI: ${p.rssi} dBm`);
+      if (p.snr   != null) parts.push(`SNR: ${p.snr} dB`);
+      if (p.count != null) parts.push(`+${p.count} pkts`);
+      return parts.join(' · ');
+    }
+    if (e.type === 'pkt_tx') {
+      const parts = [];
+      if (p.count != null) parts.push(`+${p.count} pkts`);
+      if (p.total != null) parts.push(`total: ${p.total}`);
+      return parts.join(' · ');
+    }
+    if (e.type === 'rx_advert' || e.type === 'neighbor_new') {
+      return p.pubkey ? `${p.pubkey.slice(0, 16)}…` : JSON.stringify(p).slice(0, 120);
+    }
+    return JSON.stringify(p).slice(0, 160);
+  };
+
+  tbody.innerHTML = filtered.slice(0, 500).map(e =>
     `<tr>
-      <td style="font-size:11px;color:var(--muted)">${fmtTime(e.ts)}</td>
-      <td><span class="log-type-badge ${typeClass(e.type)}">${e.type}</span></td>
-      <td style="font-size:11px;font-family:monospace">${JSON.stringify(e.payload || {}).slice(0, 200)}</td>
+      ${dirCell(e.type)}
+      <td style="font-size:11px;color:var(--muted);white-space:nowrap">${fmtTime(e.ts)}</td>
+      <td><span class="log-type-badge ${badgeClass(e.type)}">${e.type}</span></td>
+      <td style="font-size:11px;font-family:monospace">${detailStr(e)}</td>
     </tr>`
   ).join('');
 }
@@ -666,15 +771,29 @@ function wireUi() {
     if (text) { await sendCommand('public_msg', { text, channel: 0 }); e.target.reset(); }
   });
 
-  // Contacts search
+  // Contacts search + type filter buttons
   document.getElementById('contact-search')?.addEventListener('input', e => {
     if (app.snap) renderContacts(app.snap, e.target.value);
   });
+  document.querySelectorAll('.type-btn[data-kind]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      app.contactTypeFilter = btn.dataset.kind;
+      document.querySelectorAll('.type-btn[data-kind]').forEach(b => b.classList.toggle('active', b === btn));
+      if (app.snap) renderContacts(app.snap, document.getElementById('contact-search')?.value || '');
+    })
+  );
 
-  // Log filter
+  // Log filter + log type filter buttons
   document.getElementById('log-filter')?.addEventListener('input', e => {
     renderLog(app.snap?.events || [], e.target.value);
   });
+  document.querySelectorAll('.type-btn[data-log-filter]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      app.logTypeFilter = btn.dataset.logFilter;
+      document.querySelectorAll('.type-btn[data-log-filter]').forEach(b => b.classList.toggle('active', b === btn));
+      renderLog(app.snap?.events || [], document.getElementById('log-filter')?.value || '');
+    })
+  );
   document.getElementById('btn-clear-log')?.addEventListener('click', () => {
     if (app.snap) app.snap.events = [];
     renderLog([], '');

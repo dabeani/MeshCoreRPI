@@ -140,6 +140,7 @@ class Contact:
     lat: float | None
     lon: float | None
     lastmod: int
+    snr: float | None = None   # SNR in dB (populated for repeater neighbors)
 
 
 class MeshState:
@@ -224,6 +225,7 @@ class MeshState:
                     "lat": c.lat,
                     "lon": c.lon,
                     "lastmod": c.lastmod,
+                    "snr": c.snr,
                 }
                 for c in self.contacts.values()
             ]
@@ -443,8 +445,13 @@ class CompanionClient:
             return
         payload_type = payload[0]
         self.state.update_last_frame()
-        if payload_type == RESP_CODE_CONTACT or payload_type == PUSH_CODE_NEW_ADVERT:
+        if payload_type == RESP_CODE_CONTACT:
             self._parse_contact(payload)
+        elif payload_type == PUSH_CODE_NEW_ADVERT:
+            self._parse_contact(payload)
+            if len(payload) >= 33:
+                pubkey = payload[1:33].hex()
+                self.state.add_event("rx_advert", {"pubkey": pubkey[:16]})
         elif payload_type == RESP_CODE_SELF_INFO:
             self._parse_self_info(payload)
         elif payload_type == RESP_CODE_DEVICE_INFO:
@@ -532,6 +539,8 @@ class RepeaterClient:
         self.recv_buf = bytearray()
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
+        self._prev_rx: int = 0
+        self._prev_tx: int = 0
 
     def _close(self) -> None:
         if self.sock is not None:
@@ -613,6 +622,7 @@ class RepeaterClient:
         rows = [line.strip() for line in raw.splitlines() if line.strip() and line.strip() != "-none-"]
         contacts: list[Contact] = []
         now = int(time.time())
+        current_keys = set(self.state.contacts.keys())
         for row in rows:
             parts = row.split(":")
             if len(parts) < 3:
@@ -626,19 +636,22 @@ class RepeaterClient:
                 snr_q = int(parts[2])
             except ValueError:
                 snr_q = 0
+            snr_db = round(snr_q / 4.0, 2)
             contact = Contact(
                 pubkey=key,
-                kind=1,
+                kind=2,           # ADV_TYPE_REPEATER — CLI neighbors are always direct repeater peers
                 flags=0,
-                out_path_len=-1,
+                out_path_len=0,   # zero-hop = direct neighbor
                 name=f"Neighbor {key[:8]}",
                 last_advert_timestamp=max(0, now - max(0, seen_ago)),
                 lat=None,
                 lon=None,
                 lastmod=now,
+                snr=snr_db,
             )
             contacts.append(contact)
-            self.state.add_event("neighbor", {"pubkey": key, "snr": snr_q / 4.0})
+            if key not in current_keys:
+                self.state.add_event("neighbor_new", {"pubkey": key[:16], "snr": snr_db})
         self.state.replace_contacts(contacts)
 
     def _update_identity(self) -> None:
@@ -684,6 +697,23 @@ class RepeaterClient:
                 "mem": float(core.get("mem_usage_pct", 0.0)),
             }
         )
+
+        # Emit live packet events for the log (only when counts actually increase)
+        if self._prev_rx > 0 or self._prev_tx > 0:
+            delta_rx = max(0, recv_count - self._prev_rx)
+            delta_tx = max(0, sent_count - self._prev_tx)
+            if delta_rx > 0:
+                self.state.add_event("pkt_rx", {
+                    "count": delta_rx, "total": recv_count,
+                    "rssi": int(radio.get("last_rssi", 0)),
+                    "snr": float(radio.get("last_snr", 0)),
+                })
+            if delta_tx > 0:
+                self.state.add_event("pkt_tx", {
+                    "count": delta_tx, "total": sent_count,
+                })
+        self._prev_rx = recv_count
+        self._prev_tx = sent_count
 
         if full:
             self._update_identity()

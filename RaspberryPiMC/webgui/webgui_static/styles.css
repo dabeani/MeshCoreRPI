@@ -225,9 +225,15 @@ select:focus { outline: none; border-color: var(--accent); }
   font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
   background: rgba(88,166,255,.15); color: var(--accent);
 }
-.log-type-badge.err { background: rgba(255,107,107,.15); color: var(--err); }
-.log-type-badge.cfg { background: rgba(46,204,113,.12); color: var(--ok); }
-.log-type-badge.warn { background: rgba(244,196,48,.12); color: var(--warn); }
+.log-type-badge.err   { background: rgba(255,107,107,.15); color: var(--err); }
+.log-type-badge.cfg   { background: rgba(46,204,113,.12);  color: var(--ok); }
+.log-type-badge.warn  { background: rgba(244,196,48,.12);  color: var(--warn); }
+.log-type-badge.rx    { background: rgba(88,166,255,.18);  color: #6fc5ff; }
+.log-type-badge.tx    { background: rgba(46,204,113,.18);  color: #60edab; }
+.log-type-badge.adv   { background: rgba(176,107,255,.15); color: #c490ff; }
+.log-dir { font-size: 13px; font-weight: 700; }
+.log-dir.rx { color: #6fc5ff; }
+.log-dir.tx { color: #60edab; }
 
 /* ─────────────── Badges ─────────────── */
 .badge       { padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
@@ -263,9 +269,71 @@ body[data-role="repeater"]  .repeater-only.panel { display: block; }
 .leaflet-bar a:hover { background: var(--bg2); }
 
 /* ─────────────── Map marker custom ─────────────── */
-.mc-self-icon   { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid white; box-shadow: 0 0 8px var(--accent); }
-.mc-node-icon   { width: 10px; height: 10px; border-radius: 50%; background: var(--ok);    border: 2px solid white; }
-.mc-no-loc-icon { width: 8px;  height: 8px;  border-radius: 50%; background: var(--warn);  border: 2px solid white; }
+.mc-icon { background: transparent; border: none; }
+.mc-icon-self {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: radial-gradient(circle, #8ac4ff 20%, #3a80e8 100%);
+  border: 2.5px solid #fff;
+  box-shadow: 0 0 12px rgba(88,166,255,.9), 0 0 4px rgba(88,166,255,.6);
+}
+.mc-icon-repeater {
+  width: 16px; height: 16px; border-radius: 3px;
+  background: #f4c430; border: 2px solid #b8900a;
+  transform: rotate(45deg);
+  box-shadow: 0 0 8px rgba(244,196,48,.7);
+}
+.mc-icon-server {
+  width: 14px; height: 14px; border-radius: 2px;
+  background: #b06bff; border: 2px solid #7a3eb5;
+  box-shadow: 0 0 6px rgba(176,107,255,.6);
+}
+.mc-icon-client {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: #2ecc71; border: 2px solid #1a8c4a;
+  box-shadow: 0 0 5px rgba(46,204,113,.5);
+}
+.mc-icon-sensor {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: #ff9f43; border: 2px solid #c47320;
+  box-shadow: 0 0 5px rgba(255,159,67,.5);
+}
+
+/* ─────────────── Map legend ─────────────── */
+.map-legend {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  margin-top: 8px; padding: 6px 2px;
+}
+.map-legend-item {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--muted);
+}
+.map-legend-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  border: 1.5px solid rgba(255,255,255,.5);
+}
+.map-legend-dot.self     { background: #58a6ff; width: 12px; height: 12px; box-shadow: 0 0 6px #58a6ff; }
+.map-legend-dot.repeater { background: #f4c430; transform: rotate(45deg); border-radius: 2px; }
+.map-legend-dot.server   { background: #b06bff; border-radius: 2px; }
+.map-legend-dot.client   { background: #2ecc71; }
+.map-legend-dot.sensor   { background: #ff9f43; }
+
+/* ─────────────── Type filter bar (contacts + log) ─────────────── */
+.type-filter-bar {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  margin-bottom: 10px;
+}
+.type-filter-bar.compact { margin-bottom: 0; }
+.type-btn {
+  border: 1px solid var(--border2); background: transparent;
+  color: var(--muted); font-size: 11.5px; font-weight: 500;
+  padding: 4px 10px; border-radius: 99px; cursor: pointer;
+  transition: all .15s; white-space: nowrap;
+}
+.type-btn:hover { border-color: var(--accent); color: var(--text); }
+.type-btn.active {
+  border-color: var(--accent); color: var(--accent);
+  background: rgba(88,166,255,.12);
+}
 
 /* ─────────────── Responsive ─────────────── */
 @media (max-width: 1200px) {
