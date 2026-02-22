@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MeshCore Companion Web GUI</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>MeshCore Web GUI</h1>
+        <p class="subtitle" id="role-subtitle">Companion / Repeater live dashboard</p>
+      </div>
+      <div class="actions">
+        <button data-cmd="refresh">Refresh</button>
+        <button data-cmd="advert">Send Advert</button>
+        <button data-cmd="sync_time">Sync Time</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel stats">
+        <h2>Status</h2>
+        <div class="grid" id="status-grid"></div>
+      </section>
+
+      <section class="panel map-panel">
+        <h2>Network Map</h2>
+        <div id="map"></div>
+      </section>
+
+      <section class="panel control-panel">
+        <h2>Quick Actions</h2>
+        <form id="name-form" class="row-form">
+          <input name="name" placeholder="Set node name" maxlength="31" />
+          <button type="submit">Apply</button>
+        </form>
+        <form id="loc-form" class="row-form">
+          <input name="lat" placeholder="Latitude" type="number" step="0.000001" />
+          <input name="lon" placeholder="Longitude" type="number" step="0.000001" />
+          <button type="submit">Set Location</button>
+        </form>
+        <form id="pub-form" class="row-form">
+          <input name="msg" placeholder="Public channel message" maxlength="180" />
+          <button type="submit">Send</button>
+        </form>
+      </section>
+
+      <section class="panel contacts-panel">
+        <h2>Contacts</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Pubkey</th>
+                <th>Location</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody id="contacts-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel events-panel">
+        <h2>Recent Events</h2>
+        <ul id="events-list"></ul>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

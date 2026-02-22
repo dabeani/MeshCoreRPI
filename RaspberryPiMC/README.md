@@ -338,6 +338,33 @@ RPI_COMPANION_BLE_ADAPTER=hci0
 RPI_COMPANION_BLE_NAME=MeshCore
 ```
 
+Role-aware Web GUI (companion + repeater dashboards, map, live stats, quick actions) is available via the bundled web bridge helper.
+Enable/configure in `RaspberryPiMC/.env`:
+
+```text
+RPI_COMPANION_WEB_ENABLE=1
+RPI_COMPANION_WEB_HOST=0.0.0.0
+RPI_COMPANION_WEB_PORT=8080
+RPI_REPEATER_TCP_PORT=5001
+RPI_REPEATER_WEB_ENABLE=1
+RPI_REPEATER_WEB_HOST=0.0.0.0
+RPI_REPEATER_WEB_PORT=8081
+```
+
+Open in browser:
+
+```text
+Companion: http://<raspberry-pi-ip>:8080
+Repeater:  http://<raspberry-pi-ip>:8081
+```
+
+Notes:
+
+- Web GUI attaches to companion TCP bridge (`RPI_COMPANION_TCP_HOST`/`RPI_COMPANION_TCP_PORT`).
+- Repeater GUI attaches to repeater CLI TCP bridge (`RPI_REPEATER_TCP_HOST`/`RPI_REPEATER_TCP_PORT`).
+- It is launched by `run_companion.sh` / `run_repeater.sh` and by role-specific `.deb` service wrappers when enabled.
+- Implementation is helper-based (`RaspberryPiMC/webgui/`) to keep MeshCore core firmware changes minimal.
+
 ## PlatformIO Build Target
 
 You can select and compile this environment directly in PlatformIO:

@@ -7,6 +7,7 @@ CONF_FILE="$SCRIPT_DIR/meshcore.conf"
 REPEATER_BIN="$SCRIPT_DIR/meshcore-repeater"
 COMPANION_BIN="$SCRIPT_DIR/meshcore-companion"
 BLE_BRIDGE="$SCRIPT_DIR/ble_nus_bridge.py"
+WEB_BRIDGE="$SCRIPT_DIR/webgui/companion_webgui.py"
 BUNDLE_INFO="$SCRIPT_DIR/BUNDLE_INFO"
 
 RPI_FREQ_HZ="869525000"
@@ -30,8 +31,17 @@ RPI_COMPANION_TCP_PORT="5000"
 RPI_COMPANION_BLE_ENABLE="0"
 RPI_COMPANION_BLE_ADAPTER="hci0"
 RPI_COMPANION_BLE_NAME="MeshCore"
+RPI_COMPANION_WEB_ENABLE="1"
+RPI_COMPANION_WEB_HOST="0.0.0.0"
+RPI_COMPANION_WEB_PORT="8080"
+RPI_REPEATER_TCP_HOST="127.0.0.1"
+RPI_REPEATER_TCP_PORT="5001"
+RPI_REPEATER_WEB_ENABLE="1"
+RPI_REPEATER_WEB_HOST="0.0.0.0"
+RPI_REPEATER_WEB_PORT="8081"
 
 BLE_PID=""
+WEB_PID=""
 
 load_conf() {
   if [[ -f "$CONF_FILE" ]]; then
@@ -63,6 +73,14 @@ RPI_COMPANION_TCP_PORT=$RPI_COMPANION_TCP_PORT
 RPI_COMPANION_BLE_ENABLE=$RPI_COMPANION_BLE_ENABLE
 RPI_COMPANION_BLE_ADAPTER=$RPI_COMPANION_BLE_ADAPTER
 RPI_COMPANION_BLE_NAME=$RPI_COMPANION_BLE_NAME
+RPI_COMPANION_WEB_ENABLE=$RPI_COMPANION_WEB_ENABLE
+RPI_COMPANION_WEB_HOST=$RPI_COMPANION_WEB_HOST
+RPI_COMPANION_WEB_PORT=$RPI_COMPANION_WEB_PORT
+RPI_REPEATER_TCP_HOST=$RPI_REPEATER_TCP_HOST
+RPI_REPEATER_TCP_PORT=$RPI_REPEATER_TCP_PORT
+RPI_REPEATER_WEB_ENABLE=$RPI_REPEATER_WEB_ENABLE
+RPI_REPEATER_WEB_HOST=$RPI_REPEATER_WEB_HOST
+RPI_REPEATER_WEB_PORT=$RPI_REPEATER_WEB_PORT
 EOF
   echo "Saved config: $CONF_FILE"
 }
@@ -103,11 +121,29 @@ configure_values() {
   RPI_COMPANION_TCP_PORT="$(prompt_value RPI_COMPANION_TCP_PORT "$RPI_COMPANION_TCP_PORT" "Companion TCP port")"
   RPI_COMPANION_BLE_ADAPTER="$(prompt_value RPI_COMPANION_BLE_ADAPTER "$RPI_COMPANION_BLE_ADAPTER" "BLE adapter")"
   RPI_COMPANION_BLE_NAME="$(prompt_value RPI_COMPANION_BLE_NAME "$RPI_COMPANION_BLE_NAME" "BLE device name")"
+  RPI_COMPANION_WEB_HOST="$(prompt_value RPI_COMPANION_WEB_HOST "$RPI_COMPANION_WEB_HOST" "Web GUI bind host")"
+  RPI_COMPANION_WEB_PORT="$(prompt_value RPI_COMPANION_WEB_PORT "$RPI_COMPANION_WEB_PORT" "Web GUI port")"
+  RPI_REPEATER_TCP_HOST="$(prompt_value RPI_REPEATER_TCP_HOST "$RPI_REPEATER_TCP_HOST" "Repeater TCP bridge host")"
+  RPI_REPEATER_TCP_PORT="$(prompt_value RPI_REPEATER_TCP_PORT "$RPI_REPEATER_TCP_PORT" "Repeater TCP bridge port")"
+  RPI_REPEATER_WEB_HOST="$(prompt_value RPI_REPEATER_WEB_HOST "$RPI_REPEATER_WEB_HOST" "Repeater Web bind host")"
+  RPI_REPEATER_WEB_PORT="$(prompt_value RPI_REPEATER_WEB_PORT "$RPI_REPEATER_WEB_PORT" "Repeater Web port")"
 
   local ble_in
   read -r -p "Enable BLE bridge by default? (0/1) [$RPI_COMPANION_BLE_ENABLE]: " ble_in
   if [[ "$ble_in" == "0" || "$ble_in" == "1" ]]; then
     RPI_COMPANION_BLE_ENABLE="$ble_in"
+  fi
+
+  local web_in
+  read -r -p "Enable Web GUI by default? (0/1) [$RPI_COMPANION_WEB_ENABLE]: " web_in
+  if [[ "$web_in" == "0" || "$web_in" == "1" ]]; then
+    RPI_COMPANION_WEB_ENABLE="$web_in"
+  fi
+
+  local rweb_in
+  read -r -p "Enable Repeater Web GUI by default? (0/1) [$RPI_REPEATER_WEB_ENABLE]: " rweb_in
+  if [[ "$rweb_in" == "0" || "$rweb_in" == "1" ]]; then
+    RPI_REPEATER_WEB_ENABLE="$rweb_in"
   fi
 
   save_conf
@@ -137,6 +173,14 @@ show_values() {
   echo "  RPI_COMPANION_BLE_ENABLE=$RPI_COMPANION_BLE_ENABLE"
   echo "  RPI_COMPANION_BLE_ADAPTER=$RPI_COMPANION_BLE_ADAPTER"
   echo "  RPI_COMPANION_BLE_NAME=$RPI_COMPANION_BLE_NAME"
+  echo "  RPI_COMPANION_WEB_ENABLE=$RPI_COMPANION_WEB_ENABLE"
+  echo "  RPI_COMPANION_WEB_HOST=$RPI_COMPANION_WEB_HOST"
+  echo "  RPI_COMPANION_WEB_PORT=$RPI_COMPANION_WEB_PORT"
+  echo "  RPI_REPEATER_TCP_HOST=$RPI_REPEATER_TCP_HOST"
+  echo "  RPI_REPEATER_TCP_PORT=$RPI_REPEATER_TCP_PORT"
+  echo "  RPI_REPEATER_WEB_ENABLE=$RPI_REPEATER_WEB_ENABLE"
+  echo "  RPI_REPEATER_WEB_HOST=$RPI_REPEATER_WEB_HOST"
+  echo "  RPI_REPEATER_WEB_PORT=$RPI_REPEATER_WEB_PORT"
 }
 
 prepare_runtime() {
@@ -149,6 +193,11 @@ cleanup() {
     kill "$BLE_PID" >/dev/null 2>&1 || true
     wait "$BLE_PID" >/dev/null 2>&1 || true
     BLE_PID=""
+  fi
+  if [[ -n "$WEB_PID" ]]; then
+    kill "$WEB_PID" >/dev/null 2>&1 || true
+    wait "$WEB_PID" >/dev/null 2>&1 || true
+    WEB_PID=""
   fi
 }
 
@@ -198,7 +247,43 @@ run_repeater() {
     return 1
   fi
   prepare_runtime
-  exec "$REPEATER_BIN" \
+  if [[ "$RPI_REPEATER_WEB_ENABLE" == "1" ]]; then
+    if [[ ! -f "$WEB_BRIDGE" ]]; then
+      echo "Missing web GUI bridge script: $WEB_BRIDGE"
+      return 1
+    fi
+    python3 "$WEB_BRIDGE" \
+      --role repeater \
+      --repeater-host "$RPI_REPEATER_TCP_HOST" \
+      --repeater-port "$RPI_REPEATER_TCP_PORT" \
+      --bind-host "$RPI_REPEATER_WEB_HOST" \
+      --bind-port "$RPI_REPEATER_WEB_PORT" \
+      >/tmp/meshcore-repeater-web.log 2>&1 &
+    WEB_PID="$!"
+    trap cleanup EXIT INT TERM
+    sleep 0.2
+  fi
+
+  if [[ -n "$WEB_PID" ]]; then
+    "$REPEATER_BIN" \
+      --freq "$RPI_FREQ_HZ" \
+      --sf "$RPI_SF" \
+      --bw "$RPI_BW_HZ" \
+      --cr "$RPI_CR" \
+      --tx "$RPI_TX_DBM" \
+      --radio-driver "$RPI_RADIO_DRIVER" \
+      --spi-dev-prefix "$RPI_SPI_DEV_PREFIX" \
+      --spi-bus "$RPI_SPI_BUS" \
+      --spi-cs "$RPI_SPI_CS" \
+      --spi-speed "$RPI_SPI_SPEED_HZ" \
+      --reset-pin "$RPI_RESET_PIN" \
+      --busy-pin "$RPI_BUSY_PIN" \
+      --irq-pin "$RPI_IRQ_PIN" \
+      --txen-pin "$RPI_TXEN_PIN" \
+      --rxen-pin "$RPI_RXEN_PIN" \
+      --tcp-port "$RPI_REPEATER_TCP_PORT"
+  else
+    exec "$REPEATER_BIN" \
     --freq "$RPI_FREQ_HZ" \
     --sf "$RPI_SF" \
     --bw "$RPI_BW_HZ" \
@@ -213,7 +298,9 @@ run_repeater() {
     --busy-pin "$RPI_BUSY_PIN" \
     --irq-pin "$RPI_IRQ_PIN" \
     --txen-pin "$RPI_TXEN_PIN" \
-    --rxen-pin "$RPI_RXEN_PIN"
+    --rxen-pin "$RPI_RXEN_PIN" \
+    --tcp-port "$RPI_REPEATER_TCP_PORT"
+  fi
 }
 
 run_companion() {
@@ -240,7 +327,24 @@ run_companion() {
     sleep 0.2
   fi
 
-  if [[ -n "$BLE_PID" ]]; then
+  if [[ "$RPI_COMPANION_WEB_ENABLE" == "1" ]]; then
+    if [[ ! -f "$WEB_BRIDGE" ]]; then
+      echo "Missing web GUI bridge script: $WEB_BRIDGE"
+      return 1
+    fi
+    python3 "$WEB_BRIDGE" \
+      --role companion \
+      --companion-host "$RPI_COMPANION_TCP_HOST" \
+      --companion-port "$RPI_COMPANION_TCP_PORT" \
+      --bind-host "$RPI_COMPANION_WEB_HOST" \
+      --bind-port "$RPI_COMPANION_WEB_PORT" \
+      >/tmp/meshcore-companion-web.log 2>&1 &
+    WEB_PID="$!"
+    trap cleanup EXIT INT TERM
+    sleep 0.2
+  fi
+
+  if [[ -n "$BLE_PID" || -n "$WEB_PID" ]]; then
     "$COMPANION_BIN" \
       --freq "$RPI_FREQ_HZ" \
       --sf "$RPI_SF" \
@@ -394,4 +498,3 @@ while true; do
     *) echo "Unknown option" ;;
   esac
 done
-+

@@ -14,10 +14,17 @@
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #ifdef __linux__
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #endif
 
@@ -152,6 +159,161 @@ bool envEnabled(const char* name, bool fallback) {
   return std::string(v) != "0";
 }
 
+std::string jsonEscape(const std::string& value) {
+  std::string out;
+  out.reserve(value.size() + 16);
+  for (unsigned char c : value) {
+    switch (c) {
+      case '"': out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\b': out += "\\b"; break;
+      case '\f': out += "\\f"; break;
+      case '\n': out += "\\n"; break;
+      case '\r': out += "\\r"; break;
+      case '\t': out += "\\t"; break;
+      default:
+        if (c < 0x20) {
+          char buf[7]{};
+          std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(c));
+          out += buf;
+        } else {
+          out.push_back(static_cast<char>(c));
+        }
+    }
+  }
+  return out;
+}
+
+#ifdef __linux__
+class RepeaterCliTcpBridge {
+ public:
+  explicit RepeaterCliTcpBridge(int port_) : port(port_) {}
+
+  ~RepeaterCliTcpBridge() {
+    closeClient();
+    if (listen_fd >= 0) {
+      ::close(listen_fd);
+      listen_fd = -1;
+    }
+  }
+
+  bool begin() {
+    if (port <= 0) return false;
+    listen_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_fd < 0) return false;
+
+    int one = 1;
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(static_cast<uint16_t>(port));
+    if (::bind(listen_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+      return false;
+    }
+    if (::listen(listen_fd, 1) != 0) {
+      return false;
+    }
+
+    int flags = fcntl(listen_fd, F_GETFL, 0);
+    fcntl(listen_fd, F_SETFL, flags | O_NONBLOCK);
+    return true;
+  }
+
+  template <typename Handler>
+  void loop(Handler&& handler) {
+    if (listen_fd < 0) return;
+    acceptClientIfAny();
+    if (client_fd < 0) return;
+
+    recvFromClient();
+    parseIncoming(handler);
+    sendToClient();
+  }
+
+  bool isEnabled() const {
+    return listen_fd >= 0;
+  }
+
+ private:
+  int port;
+  int listen_fd = -1;
+  int client_fd = -1;
+  std::string recv_buffer;
+  std::string send_buffer;
+
+  void closeClient() {
+    if (client_fd >= 0) {
+      ::close(client_fd);
+      client_fd = -1;
+    }
+    recv_buffer.clear();
+    send_buffer.clear();
+  }
+
+  void acceptClientIfAny() {
+    if (listen_fd < 0) return;
+    sockaddr_in caddr{};
+    socklen_t clen = sizeof(caddr);
+    int fd = ::accept(listen_fd, reinterpret_cast<sockaddr*>(&caddr), &clen);
+    if (fd < 0) return;
+    closeClient();
+    client_fd = fd;
+    int flags = fcntl(client_fd, F_GETFL, 0);
+    fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
+  }
+
+  void recvFromClient() {
+    if (client_fd < 0) return;
+    char tmp[1024];
+    int n = ::recv(client_fd, tmp, sizeof(tmp), 0);
+    if (n == 0) {
+      closeClient();
+      return;
+    }
+    if (n < 0) return;
+    recv_buffer.append(tmp, static_cast<size_t>(n));
+  }
+
+  template <typename Handler>
+  void parseIncoming(Handler&& handler) {
+    while (true) {
+      const size_t nl = recv_buffer.find('\n');
+      if (nl == std::string::npos) return;
+      std::string line = recv_buffer.substr(0, nl);
+      recv_buffer.erase(0, nl + 1);
+      if (!line.empty() && line.back() == '\r') {
+        line.pop_back();
+      }
+      if (line.empty()) continue;
+
+      std::string reply;
+      bool ok = true;
+      try {
+        handler(line, reply);
+      } catch (...) {
+        ok = false;
+        reply = "internal error";
+      }
+
+      std::ostringstream json;
+      json << "{\"ok\":" << (ok ? "true" : "false")
+           << ",\"command\":\"" << jsonEscape(line) << "\""
+           << ",\"reply\":\"" << jsonEscape(reply) << "\"}\n";
+      send_buffer += json.str();
+    }
+  }
+
+  void sendToClient() {
+    if (client_fd < 0 || send_buffer.empty()) return;
+    int n = ::send(client_fd, send_buffer.data(), send_buffer.size(), 0);
+    if (n <= 0) return;
+    send_buffer.erase(0, static_cast<size_t>(n));
+  }
+};
+#endif
+
 }
 
 int main(int argc, char** argv) {
@@ -180,6 +342,7 @@ int main(int argc, char** argv) {
   int rxen_pin = envInt("RPI_RXEN_PIN", -1);
   bool use_dio3_tcxo = envEnabled("RPI_USE_TCXO", false);
   bool use_dio2_rf_switch = envEnabled("RPI_USE_DIO2_RF", false);
+  int repeater_tcp_port = envInt("RPI_REPEATER_TCP_PORT", 5001);
 
   for (int i = 1; i < argc; ++i) {
     const std::string a(argv[i]);
@@ -214,6 +377,7 @@ int main(int argc, char** argv) {
     else if (a == "--irq-pin" && i + 1 < argc) irq_pin = std::stoi(argv[++i]);
     else if (a == "--txen-pin" && i + 1 < argc) txen_pin = std::stoi(argv[++i]);
     else if (a == "--rxen-pin" && i + 1 < argc) rxen_pin = std::stoi(argv[++i]);
+    else if (a == "--tcp-port" && i + 1 < argc) repeater_tcp_port = std::stoi(argv[++i]);
     else if (a == "--no-tcxo") use_dio3_tcxo = false;
     else if (a == "--no-dio2-rf") use_dio2_rf_switch = false;
     else if (a == "--help") {
@@ -221,6 +385,7 @@ int main(int argc, char** argv) {
                    " [--radio-driver sx1262|sx127x]"
                    " [--spi-dev-prefix PATH] [--spi-bus N] [--spi-cs N] [--spi-speed HZ]"
                    " [--cs-pin N] [--reset-pin N] [--busy-pin N] [--irq-pin N] [--txen-pin N] [--rxen-pin N]"
+                   " [--tcp-port N]"
                    " [--no-tcxo] [--no-dio2-rf]\n";
       return 0;
     }
@@ -263,10 +428,22 @@ int main(int argc, char** argv) {
     }
 
     printStartupRadioInfo();
+    if (repeater_tcp_port > 0) {
+      std::cout << "cli-tcp-port: " << repeater_tcp_port << "\n";
+    }
+
+    std::mutex command_mutex;
 
     bool interactive_cli = true;
 #ifdef __linux__
     interactive_cli = ::isatty(STDIN_FILENO) != 0;
+#endif
+
+#ifdef __linux__
+    RepeaterCliTcpBridge tcp_bridge(repeater_tcp_port);
+    if (repeater_tcp_port > 0 && !tcp_bridge.begin()) {
+      std::cerr << "warn: failed to start repeater CLI TCP bridge on port " << repeater_tcp_port << "\n";
+    }
 #endif
 
     std::thread cli;
@@ -285,7 +462,10 @@ int main(int argc, char** argv) {
           }
           if (!line.empty()) {
             char reply[200]{};
-            the_mesh.handleCommand(0, line.data(), reply);
+            {
+              std::lock_guard<std::mutex> lock(command_mutex);
+              the_mesh.handleCommand(0, line.data(), reply);
+            }
             if (reply[0]) std::cout << reply << "\n";
           }
         }
@@ -293,6 +473,20 @@ int main(int argc, char** argv) {
     }
 
     while (!g_stop.load()) {
+#ifdef __linux__
+      if (tcp_bridge.isEnabled()) {
+        tcp_bridge.loop([&](const std::string& cmd, std::string& reply) {
+          std::vector<char> command(cmd.begin(), cmd.end());
+          command.push_back('\0');
+          char out[240]{};
+          {
+            std::lock_guard<std::mutex> lock(command_mutex);
+            the_mesh.handleCommand(0, command.data(), out);
+          }
+          reply = out;
+        });
+      }
+#endif
       the_mesh.loop();
       sensors.loop();
       rtc_clock.tick();

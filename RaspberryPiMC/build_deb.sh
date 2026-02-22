@@ -60,10 +60,24 @@ chmod 0755 "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/program"
 
 if [[ "$ROLE" == "companion" ]]; then
   BLE_SRC=""
+  WEB_SRC=""
+  WEB_STATIC_SRC=""
   if [[ -f "$SCRIPT_DIR/ble_nus_bridge.py" ]]; then
     BLE_SRC="$SCRIPT_DIR/ble_nus_bridge.py"
   elif [[ -f "$SCRIPT_DIR/dist/meshcore-rpi-portable/ble_nus_bridge.py" ]]; then
     BLE_SRC="$SCRIPT_DIR/dist/meshcore-rpi-portable/ble_nus_bridge.py"
+  fi
+
+  if [[ -f "$SCRIPT_DIR/webgui/companion_webgui.py" ]]; then
+    WEB_SRC="$SCRIPT_DIR/webgui/companion_webgui.py"
+  elif [[ -f "$SCRIPT_DIR/dist/meshcore-rpi-portable/webgui/companion_webgui.py" ]]; then
+    WEB_SRC="$SCRIPT_DIR/dist/meshcore-rpi-portable/webgui/companion_webgui.py"
+  fi
+
+  if [[ -d "$SCRIPT_DIR/webgui/webgui_static" ]]; then
+    WEB_STATIC_SRC="$SCRIPT_DIR/webgui/webgui_static"
+  elif [[ -d "$SCRIPT_DIR/dist/meshcore-rpi-portable/webgui/webgui_static" ]]; then
+    WEB_STATIC_SRC="$SCRIPT_DIR/dist/meshcore-rpi-portable/webgui/webgui_static"
   fi
 
   if [[ -n "$BLE_SRC" ]]; then
@@ -72,6 +86,52 @@ if [[ "$ROLE" == "companion" ]]; then
   else
     echo "Warning: ble_nus_bridge.py not found; companion package built without BLE bridge script."
     echo "         BLE mode (RPI_COMPANION_BLE_ENABLE=1) will not work until script is installed."
+  fi
+
+  if [[ -n "$WEB_SRC" ]]; then
+    mkdir -p "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/webgui"
+    cp "$WEB_SRC" "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/webgui/companion_webgui.py"
+    chmod 0755 "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/webgui/companion_webgui.py"
+  else
+    echo "Warning: companion_webgui.py not found; companion package built without web GUI bridge script."
+  fi
+
+  if [[ -n "$WEB_STATIC_SRC" ]]; then
+    mkdir -p "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/webgui/webgui_static"
+    cp -R "$WEB_STATIC_SRC"/. "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/webgui/webgui_static/"
+  else
+    echo "Warning: webgui_static not found; companion package built without web static assets."
+  fi
+fi
+
+if [[ "$ROLE" == "repeater" ]]; then
+  WEB_SRC=""
+  WEB_STATIC_SRC=""
+  if [[ -f "$SCRIPT_DIR/webgui/companion_webgui.py" ]]; then
+    WEB_SRC="$SCRIPT_DIR/webgui/companion_webgui.py"
+  elif [[ -f "$SCRIPT_DIR/dist/meshcore-rpi-portable/webgui/companion_webgui.py" ]]; then
+    WEB_SRC="$SCRIPT_DIR/dist/meshcore-rpi-portable/webgui/companion_webgui.py"
+  fi
+
+  if [[ -d "$SCRIPT_DIR/webgui/webgui_static" ]]; then
+    WEB_STATIC_SRC="$SCRIPT_DIR/webgui/webgui_static"
+  elif [[ -d "$SCRIPT_DIR/dist/meshcore-rpi-portable/webgui/webgui_static" ]]; then
+    WEB_STATIC_SRC="$SCRIPT_DIR/dist/meshcore-rpi-portable/webgui/webgui_static"
+  fi
+
+  if [[ -n "$WEB_SRC" ]]; then
+    mkdir -p "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/webgui"
+    cp "$WEB_SRC" "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/webgui/companion_webgui.py"
+    chmod 0755 "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/webgui/companion_webgui.py"
+  else
+    echo "Warning: companion_webgui.py not found; repeater package built without web GUI bridge script."
+  fi
+
+  if [[ -n "$WEB_STATIC_SRC" ]]; then
+    mkdir -p "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/webgui/webgui_static"
+    cp -R "$WEB_STATIC_SRC"/. "$PKG_ROOT/usr/lib/raspberrypimc/${ROLE}/webgui/webgui_static/"
+  else
+    echo "Warning: webgui_static not found; repeater package built without web static assets."
   fi
 fi
 
@@ -92,11 +152,17 @@ export MESHCORE_DATA_DIR="\$DATA_DIR"
 
 if [[ "${ROLE}" == "companion" ]]; then
   BLE_BRIDGE=/usr/lib/raspberrypimc/companion/ble_nus_bridge.py
+  WEB_BRIDGE=/usr/lib/raspberrypimc/companion/webgui/companion_webgui.py
   BLE_PID=""
+  WEB_PID=""
   cleanup() {
     if [[ -n "\$BLE_PID" ]]; then
       kill "\$BLE_PID" >/dev/null 2>&1 || true
       wait "\$BLE_PID" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "\$WEB_PID" ]]; then
+      kill "\$WEB_PID" >/dev/null 2>&1 || true
+      wait "\$WEB_PID" >/dev/null 2>&1 || true
     fi
   }
   trap cleanup EXIT INT TERM
@@ -110,9 +176,47 @@ if [[ "${ROLE}" == "companion" ]]; then
     BLE_PID="\$!"
     sleep 0.2
   fi
+
+  if [[ "\${RPI_COMPANION_WEB_ENABLE:-1}" == "1" ]]; then
+    python3 "\$WEB_BRIDGE" \
+      --role companion \
+      --companion-host "\${RPI_COMPANION_TCP_HOST:-127.0.0.1}" \
+      --companion-port "\${RPI_COMPANION_TCP_PORT:-5000}" \
+      --bind-host "\${RPI_COMPANION_WEB_HOST:-0.0.0.0}" \
+      --bind-port "\${RPI_COMPANION_WEB_PORT:-8080}" \
+      >/var/log/raspberrypimc-companion-web.log 2>&1 &
+    WEB_PID="\$!"
+    sleep 0.2
+  fi
 fi
 
-if [[ "${ROLE}" == "companion" && -n "\${BLE_PID:-}" ]]; then
+if [[ "${ROLE}" == "repeater" ]]; then
+  WEB_BRIDGE=/usr/lib/raspberrypimc/repeater/webgui/companion_webgui.py
+  WEB_PID=""
+  cleanup() {
+    if [[ -n "\${WEB_PID:-}" ]]; then
+      kill "\$WEB_PID" >/dev/null 2>&1 || true
+      wait "\$WEB_PID" >/dev/null 2>&1 || true
+    fi
+  }
+  trap cleanup EXIT INT TERM
+
+  if [[ "\${RPI_REPEATER_WEB_ENABLE:-1}" == "1" ]]; then
+    python3 "\$WEB_BRIDGE" \
+      --role repeater \
+      --repeater-host "\${RPI_REPEATER_TCP_HOST:-127.0.0.1}" \
+      --repeater-port "\${RPI_REPEATER_TCP_PORT:-5001}" \
+      --bind-host "\${RPI_REPEATER_WEB_HOST:-0.0.0.0}" \
+      --bind-port "\${RPI_REPEATER_WEB_PORT:-8081}" \
+      >/var/log/raspberrypimc-repeater-web.log 2>&1 &
+    WEB_PID="\$!"
+    sleep 0.2
+  fi
+fi
+
+if [[ "${ROLE}" == "companion" && ( -n "\${BLE_PID:-}" || -n "\${WEB_PID:-}" ) ]]; then
+  "\$BIN" "\$@"
+elif [[ "${ROLE}" == "repeater" && -n "\${WEB_PID:-}" ]]; then
   "\$BIN" "\$@"
 elif [[ "${ROLE}" == "companion" ]]; then
   exec "\$BIN" "\$@"
@@ -172,7 +276,7 @@ Section: net
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: MeshCore RaspberryPiMC
-Depends: libc6, systemd$(if [[ "$ROLE" == "companion" ]]; then echo ', python3, python3-dbus, python3-gi, bluez'; fi)
+Depends: libc6, systemd$(if [[ "$ROLE" == "companion" ]]; then echo ', python3, python3-dbus, python3-gi, bluez'; elif [[ "$ROLE" == "repeater" ]]; then echo ', python3'; fi)
 Description: RaspberryPiMC native MeshCore ${ROLE} runtime
  Native MeshCore runtime package for Raspberry Pi using Waveshare SX1262 HAT.
 EOF

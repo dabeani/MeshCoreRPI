@@ -123,6 +123,9 @@ cp "$SCRIPT_DIR/meshcore_pi_menu.sh" "$BUNDLE_DIR/meshcore_pi_menu.sh"
 cp "$REPEATER_BIN" "$BUNDLE_DIR/meshcore-repeater"
 cp "$COMPANION_BIN" "$BUNDLE_DIR/meshcore-companion"
 cp "$SCRIPT_DIR/ble_nus_bridge.py" "$BUNDLE_DIR/ble_nus_bridge.py"
+mkdir -p "$BUNDLE_DIR/webgui/webgui_static"
+cp "$SCRIPT_DIR/webgui/companion_webgui.py" "$BUNDLE_DIR/webgui/companion_webgui.py"
+cp -R "$SCRIPT_DIR/webgui/webgui_static"/. "$BUNDLE_DIR/webgui/webgui_static/"
 cp "$SCRIPT_DIR/.env.example" "$BUNDLE_DIR/meshcore.env.example"
 
 cat > "$BUNDLE_DIR/BUNDLE_INFO" <<EOF
@@ -141,6 +144,7 @@ Files:
 - meshcore-repeater        repeater executable
 - meshcore-companion       companion executable
 - ble_nus_bridge.py        BLE bridge helper
+- webgui/                  role-aware web GUI helper and static assets
 - meshcore.env.example     config reference
 
 Run on Raspberry Pi:
