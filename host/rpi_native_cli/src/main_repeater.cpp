@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -27,27 +28,61 @@ static void sig_handler(int) {
   g_stop.store(true);
 }
 
-int main(int argc, char** argv) {
-  float freq_mhz = 869.525f;
-  float bw_khz = 250.0f;
-  uint8_t sf = 11;
-  uint8_t cr = 5;
-  int8_t tx_dbm = 22;
-  bool runtime_radio_override = false;
-  std::string radio_driver_name = "sx1262";
+namespace {
 
-  int spi_bus = 0;
-  int spi_cs = 0;
-  int spi_speed_hz = 8000000;
-  std::string spi_dev_prefix = "/dev/spidev";
-  int cs_pin = 21;
-  int reset_pin = 18;
-  int busy_pin = 20;
-  int irq_pin = 16;
-  int txen_pin = -1;
-  int rxen_pin = -1;
-  bool use_dio3_tcxo = true;
-  bool use_dio2_rf_switch = true;
+bool hasEnv(const char* name) {
+  const char* v = std::getenv(name);
+  return v != nullptr && v[0] != '\0';
+}
+
+int envInt(const char* name, int fallback) {
+  const char* v = std::getenv(name);
+  if (!v || v[0] == '\0') return fallback;
+  try {
+    return std::stoi(v);
+  } catch (...) {
+    return fallback;
+  }
+}
+
+std::string envString(const char* name, const char* fallback) {
+  const char* v = std::getenv(name);
+  if (!v || v[0] == '\0') return std::string(fallback);
+  return std::string(v);
+}
+
+bool envEnabled(const char* name, bool fallback) {
+  const char* v = std::getenv(name);
+  if (!v || v[0] == '\0') return fallback;
+  return std::string(v) != "0";
+}
+
+}
+
+int main(int argc, char** argv) {
+  const bool env_radio_override =
+    hasEnv("RPI_FREQ_HZ") || hasEnv("RPI_SF") || hasEnv("RPI_BW_HZ") || hasEnv("RPI_CR") || hasEnv("RPI_TX_DBM");
+
+  float freq_mhz = static_cast<float>(envInt("RPI_FREQ_HZ", 869525000)) / 1000000.0f;
+  float bw_khz = static_cast<float>(envInt("RPI_BW_HZ", 250000)) / 1000.0f;
+  uint8_t sf = static_cast<uint8_t>(envInt("RPI_SF", 11));
+  uint8_t cr = static_cast<uint8_t>(envInt("RPI_CR", 5));
+  int8_t tx_dbm = static_cast<int8_t>(envInt("RPI_TX_DBM", 22));
+  bool runtime_radio_override = env_radio_override;
+  std::string radio_driver_name = envString("RPI_RADIO_DRIVER", "sx1262");
+
+  int spi_bus = envInt("RPI_SPI_BUS", 0);
+  int spi_cs = envInt("RPI_SPI_CS", 0);
+  int spi_speed_hz = envInt("RPI_SPI_SPEED_HZ", 8000000);
+  std::string spi_dev_prefix = envString("RPI_SPI_DEV_PREFIX", "/dev/spidev");
+  int cs_pin = envInt("RPI_CS_PIN", 21);
+  int reset_pin = envInt("RPI_RESET_PIN", 18);
+  int busy_pin = envInt("RPI_BUSY_PIN", 20);
+  int irq_pin = envInt("RPI_IRQ_PIN", 16);
+  int txen_pin = envInt("RPI_TXEN_PIN", -1);
+  int rxen_pin = envInt("RPI_RXEN_PIN", -1);
+  bool use_dio3_tcxo = envEnabled("RPI_USE_TCXO", false);
+  bool use_dio2_rf_switch = envEnabled("RPI_USE_DIO2_RF", false);
 
   for (int i = 1; i < argc; ++i) {
     const std::string a(argv[i]);

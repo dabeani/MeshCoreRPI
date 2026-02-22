@@ -81,20 +81,14 @@ set -euo pipefail
 ENV_FILE=/etc/raspberrypimc/${ROLE}.env
 BIN=/usr/lib/raspberrypimc/${ROLE}/program
 if [[ -f "\$ENV_FILE" ]]; then
+  set -a
   source "\$ENV_FILE"
+  set +a
 fi
 
 DATA_DIR="\${RPI_DATA_DIR:-/var/lib/raspberrypimc/userdata}"
 mkdir -p "\$DATA_DIR" >/dev/null 2>&1 || true
 export MESHCORE_DATA_DIR="\$DATA_DIR"
-
-EXTRA_RADIO_ARGS=()
-if [[ "${RPI_USE_TCXO:-0}" == "0" ]]; then
-  EXTRA_RADIO_ARGS+=(--no-tcxo)
-fi
-if [[ "${RPI_USE_DIO2_RF:-0}" == "0" ]]; then
-  EXTRA_RADIO_ARGS+=(--no-dio2-rf)
-fi
 
 if [[ "${ROLE}" == "companion" ]]; then
   BLE_BRIDGE=/usr/lib/raspberrypimc/companion/ble_nus_bridge.py
@@ -119,67 +113,11 @@ if [[ "${ROLE}" == "companion" ]]; then
 fi
 
 if [[ "${ROLE}" == "companion" && -n "\${BLE_PID:-}" ]]; then
-  "\$BIN" \
-    --freq "\${RPI_FREQ_HZ:-869525000}" \
-    --sf "\${RPI_SF:-11}" \
-    --bw "\${RPI_BW_HZ:-250000}" \
-    --cr "\${RPI_CR:-5}" \
-    --tx "\${RPI_TX_DBM:-22}" \
-    --radio-driver "\${RPI_RADIO_DRIVER:-sx1262}" \
-    --spi-dev-prefix "\${RPI_SPI_DEV_PREFIX:-/dev/spidev}" \
-    --spi-bus "\${RPI_SPI_BUS:-0}" \
-    --spi-cs "\${RPI_SPI_CS:-0}" \
-    --cs-pin "\${RPI_CS_PIN:-21}" \
-    --spi-speed "\${RPI_SPI_SPEED_HZ:-8000000}" \
-    --reset-pin "\${RPI_RESET_PIN:-18}" \
-    --busy-pin "\${RPI_BUSY_PIN:-20}" \
-    --irq-pin "\${RPI_IRQ_PIN:-16}" \
-    --txen-pin "\${RPI_TXEN_PIN:--1}" \
-    --rxen-pin "\${RPI_RXEN_PIN:--1}" \
-    "\${EXTRA_RADIO_ARGS[@]}" \
-    --tcp-port "\${RPI_COMPANION_TCP_PORT:-5000}" \
-    "\$@"
+  "$BIN" "$@"
 elif [[ "${ROLE}" == "companion" ]]; then
-  exec "\$BIN" \
-    --freq "\${RPI_FREQ_HZ:-869525000}" \
-    --sf "\${RPI_SF:-11}" \
-    --bw "\${RPI_BW_HZ:-250000}" \
-    --cr "\${RPI_CR:-5}" \
-    --tx "\${RPI_TX_DBM:-22}" \
-    --radio-driver "\${RPI_RADIO_DRIVER:-sx1262}" \
-    --spi-dev-prefix "\${RPI_SPI_DEV_PREFIX:-/dev/spidev}" \
-    --spi-bus "\${RPI_SPI_BUS:-0}" \
-    --spi-cs "\${RPI_SPI_CS:-0}" \
-    --cs-pin "\${RPI_CS_PIN:-21}" \
-    --spi-speed "\${RPI_SPI_SPEED_HZ:-8000000}" \
-    --reset-pin "\${RPI_RESET_PIN:-18}" \
-    --busy-pin "\${RPI_BUSY_PIN:-20}" \
-    --irq-pin "\${RPI_IRQ_PIN:-16}" \
-    --txen-pin "\${RPI_TXEN_PIN:--1}" \
-    --rxen-pin "\${RPI_RXEN_PIN:--1}" \
-    "\${EXTRA_RADIO_ARGS[@]}" \
-    --tcp-port "\${RPI_COMPANION_TCP_PORT:-5000}" \
-    "\$@"
+  exec "$BIN" "$@"
 else
-  exec "\$BIN" \
-    --freq "\${RPI_FREQ_HZ:-869525000}" \
-    --sf "\${RPI_SF:-11}" \
-    --bw "\${RPI_BW_HZ:-250000}" \
-    --cr "\${RPI_CR:-5}" \
-    --tx "\${RPI_TX_DBM:-22}" \
-    --radio-driver "\${RPI_RADIO_DRIVER:-sx1262}" \
-    --spi-dev-prefix "\${RPI_SPI_DEV_PREFIX:-/dev/spidev}" \
-    --spi-bus "\${RPI_SPI_BUS:-0}" \
-    --spi-cs "\${RPI_SPI_CS:-0}" \
-    --cs-pin "\${RPI_CS_PIN:-21}" \
-    --spi-speed "\${RPI_SPI_SPEED_HZ:-8000000}" \
-    --reset-pin "\${RPI_RESET_PIN:-18}" \
-    --busy-pin "\${RPI_BUSY_PIN:-20}" \
-    --irq-pin "\${RPI_IRQ_PIN:-16}" \
-    --txen-pin "\${RPI_TXEN_PIN:--1}" \
-    --rxen-pin "\${RPI_RXEN_PIN:--1}" \
-    "\${EXTRA_RADIO_ARGS[@]}" \
-    "\$@"
+  exec "$BIN" "$@"
 fi
 EOF
 chmod 0755 "$PKG_ROOT/usr/bin/raspberrypimc-${ROLE}"

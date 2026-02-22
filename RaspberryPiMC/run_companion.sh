@@ -19,7 +19,9 @@ if [[ ! -x "$BIN" ]]; then
   platformio run --environment RaspberryPiMC_native_companion
 fi
 
+set -a
 source "$ENV_FILE"
+set +a
 
 DATA_DIR="${RPI_DATA_DIR:-/var/lib/raspberrypimc/userdata}"
 mkdir -p "$DATA_DIR" >/dev/null 2>&1 || true
@@ -51,40 +53,8 @@ fi
 
 if [[ -n "$BLE_PID" ]]; then
   "$BIN" \
-    --freq "${RPI_FREQ_HZ:-869525000}" \
-    --sf "${RPI_SF:-11}" \
-    --bw "${RPI_BW_HZ:-250000}" \
-    --cr "${RPI_CR:-5}" \
-    --tx "${RPI_TX_DBM:-22}" \
-    --radio-driver "${RPI_RADIO_DRIVER:-sx1262}" \
-    --spi-dev-prefix "${RPI_SPI_DEV_PREFIX:-/dev/spidev}" \
-    --spi-bus "${RPI_SPI_BUS:-0}" \
-    --spi-cs "${RPI_SPI_CS:-0}" \
-    --spi-speed "${RPI_SPI_SPEED_HZ:-8000000}" \
-    --reset-pin "${RPI_RESET_PIN:-18}" \
-    --busy-pin "${RPI_BUSY_PIN:-20}" \
-    --irq-pin "${RPI_IRQ_PIN:-16}" \
-    --txen-pin "${RPI_TXEN_PIN:--1}" \
-    --rxen-pin "${RPI_RXEN_PIN:--1}" \
-    --tcp-port "${RPI_COMPANION_TCP_PORT:-5000}" \
     "$@"
 else
   exec "$BIN" \
-    --freq "${RPI_FREQ_HZ:-869525000}" \
-    --sf "${RPI_SF:-11}" \
-    --bw "${RPI_BW_HZ:-250000}" \
-    --cr "${RPI_CR:-5}" \
-    --tx "${RPI_TX_DBM:-22}" \
-    --radio-driver "${RPI_RADIO_DRIVER:-sx1262}" \
-    --spi-dev-prefix "${RPI_SPI_DEV_PREFIX:-/dev/spidev}" \
-    --spi-bus "${RPI_SPI_BUS:-0}" \
-    --spi-cs "${RPI_SPI_CS:-0}" \
-    --spi-speed "${RPI_SPI_SPEED_HZ:-8000000}" \
-    --reset-pin "${RPI_RESET_PIN:-18}" \
-    --busy-pin "${RPI_BUSY_PIN:-20}" \
-    --irq-pin "${RPI_IRQ_PIN:-16}" \
-    --txen-pin "${RPI_TXEN_PIN:--1}" \
-    --rxen-pin "${RPI_RXEN_PIN:--1}" \
-    --tcp-port "${RPI_COMPANION_TCP_PORT:-5000}" \
     "$@"
 fi
