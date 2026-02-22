@@ -741,13 +741,20 @@ function renderChannels(snap) {
     const hopStr  = m.path_len === 0 ? 'Direct' : m.path_len > 0 ? `${m.path_len} hop${m.path_len !== 1 ? 's' : ''}` : '';
     const metaParts = [m.outbound ? 'You' : '', fmtMsgTime(m.ts)].filter(Boolean);
     const footerParts = [hopStr, snrStr].filter(Boolean);
+    // Delivery status for outbound messages
+    let statusHtml = '';
+    if (m.outbound) {
+      if      (m.status === 'pending') statusHtml = '<span class="ch-status pending">&#9201; Sending\u2026</span>';
+      else if (m.status === 'sent')    statusHtml = '<span class="ch-status sent">&#10003; Delivered</span>';
+      else if (m.status === 'failed')  statusHtml = '<span class="ch-status failed">&#9888; Failed</span>';
+    }
     return `<div class="ch-bubble ${dir}">
       <div class="ch-bubble-meta">
         ${m.outbound ? '' : `<span class="ch-bubble-sender">${_esc(chName)}</span>`}
         <span>${metaParts.join(' · ')}</span>
       </div>
       <div class="ch-bubble-text">${_esc(m.text)}</div>
-      ${footerParts.length ? `<div class="ch-bubble-footer">${footerParts.join(' · ')}</div>` : ''}
+      ${(footerParts.length || statusHtml) ? `<div class="ch-bubble-footer">${footerParts.join(' · ')}${statusHtml}</div>` : ''}
     </div>`;
   }).join('');
 

@@ -481,6 +481,12 @@ body[data-role="repeater"]  .repeater-only.panel { display: block; }
   font-size: 10px; color: var(--muted); justify-content: flex-end;
 }
 
+/* Delivery status badge inside outbound bubble footer */
+.ch-status { font-size: 10px; font-weight: 600; margin-left: 4px; }
+.ch-status.pending { color: var(--muted); }
+.ch-status.sent    { color: #3fb950; }
+.ch-status.failed  { color: #f78166; }
+
 .ch-send-form {
   display: flex; gap: 8px; padding: 10px 14px;
   border-top: 1px solid var(--border2); flex-shrink: 0;

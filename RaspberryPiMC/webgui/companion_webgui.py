@@ -294,6 +294,7 @@ class CompanionClient:
         self.recv_buf = bytearray()
         self.send_lock = threading.Lock()
         self.stop_event = threading.Event()
+        self._pending_ack_ids: list[str] = []  # msg_ids awaiting RESP_CODE_MSG_SENT
 
     def _frame_out(self, payload: bytes) -> bytes:
         return b"<" + struct.pack("<H", len(payload)) + payload
@@ -596,6 +597,15 @@ class CompanionClient:
             self._parse_contact_msg(payload)
             # Fetch the next queued message automatically
             self.send_cmd(bytes([CMD_SYNC_NEXT_MESSAGE]))
+        elif payload_type == RESP_CODE_MSG_SENT:
+            # Acknowledge oldest pending outbound message
+            if self._pending_ack_ids:
+                ack_id = self._pending_ack_ids.pop(0)
+                with self.state._lock:
+                    for m in reversed(self.state.messages):
+                        if m.get("msg_id") == ack_id:
+                            m["status"] = "sent"
+                            break
         elif payload_type == RESP_CODE_NO_MORE_MSGS:
             pass  # No more queued messages — nothing to do
         elif payload_type == PUSH_CODE_ADVERT and len(payload) >= 33:
@@ -637,6 +647,16 @@ class CompanionClient:
                 self._recv()
                 poll_counter += 1
                 if poll_counter % 40 == 0:
+                    # Expire outbound messages that never received an ACK (>15 s)
+                    now_ts = int(time.time())
+                    expired_any = False
+                    with self.state._lock:
+                        for m in self.state.messages:
+                            if m.get("outbound") and m.get("status") == "pending" and now_ts - m.get("ts", now_ts) > 15:
+                                m["status"] = "failed"
+                                expired_any = True
+                    if expired_any:
+                        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": now_ts})
                     self.send_cmd(bytes([CMD_GET_BATT_AND_STORAGE]))
                     self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_CORE]))
                     self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_RADIO]))
@@ -1055,9 +1075,10 @@ class App:
             text = str(args.get("text", "")).encode("utf-8")[:180]
             channel = int(args.get("channel", 0)) & 0xFF
             ts = int(time.time())
+            msg_id = f"{ts}_{channel}_{len(self.client._pending_ack_ids)}"
             payload = bytes([CMD_SEND_CHANNEL_TXT_MSG, 0, channel]) + struct.pack("<I", ts) + text
             self.client.send_cmd(payload)
-            # Store the outbound message locally so it shows in the channels view
+            # Store the outbound message with pending status
             ch_name = next((c["name"] for c in self.state.channels if c["index"] == channel), f"ch{channel}")
             out_msg = {
                 "msg_type": "channel",
@@ -1069,9 +1090,12 @@ class App:
                 "text": text.decode("utf-8", errors="replace"),
                 "snr": None,
                 "outbound": True,
+                "status": "pending",
+                "msg_id": msg_id,
             }
             with self.state._lock:
                 self.state.messages.append(out_msg)
+                self.client._pending_ack_ids.append(msg_id)
             self.state.add_event("chan_msg_sent", {"channel": ch_name, "text": text.decode("utf-8", errors="replace")[:60]})
             self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             return {"channel": channel, "bytes": len(text)}
