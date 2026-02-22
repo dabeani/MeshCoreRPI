@@ -65,6 +65,33 @@ sudo systemctl restart raspberrypimc-repeater.service
 sudo systemctl restart raspberrypimc-companion.service
 ```
 
+### SX127x quick-start profile
+
+If you use an SX127x-based module, set the driver explicitly and adjust GPIO pins to your wiring:
+
+```dotenv
+RPI_RADIO_DRIVER=sx127x
+RPI_SPI_DEV_PREFIX=/dev/spidev
+RPI_SPI_BUS=0
+RPI_SPI_CS=0
+RPI_SPI_SPEED_HZ=1000000
+
+# Example GPIO mapping (change for your board/wiring)
+RPI_CS_PIN=21
+RPI_RESET_PIN=18
+RPI_IRQ_PIN=16
+RPI_TXEN_PIN=-1
+RPI_RXEN_PIN=-1
+```
+
+Then restart the service and verify from CLI:
+
+```text
+radio-diag
+```
+
+Expected: `"driver":"sx127x"` in the diagnostic JSON.
+
 ### 1) Binary install prerequisites
 
 ```bash
