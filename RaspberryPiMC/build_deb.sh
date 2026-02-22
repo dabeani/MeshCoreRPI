@@ -113,11 +113,11 @@ if [[ "${ROLE}" == "companion" ]]; then
 fi
 
 if [[ "${ROLE}" == "companion" && -n "\${BLE_PID:-}" ]]; then
-  "$BIN" "$@"
+  "\$BIN" "\$@"
 elif [[ "${ROLE}" == "companion" ]]; then
-  exec "$BIN" "$@"
+  exec "\$BIN" "\$@"
 else
-  exec "$BIN" "$@"
+  exec "\$BIN" "\$@"
 fi
 EOF
 chmod 0755 "$PKG_ROOT/usr/bin/raspberrypimc-${ROLE}"
