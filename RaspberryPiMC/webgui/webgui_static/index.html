@@ -29,6 +29,7 @@
         <button class="tab-btn" data-tab="contacts">Contacts</button>
         <button class="tab-btn" data-tab="config">Config</button>
         <button class="tab-btn" data-tab="logs">Logs</button>
+        <button class="tab-btn companion-only" data-tab="channels" id="tab-btn-channels">Channels <span class="ch-unread-badge" id="ch-tab-badge" style="display:none">0</span></button>
       </nav>
       <div class="topbar-right">
         <span id="conn-badge" class="badge err" title="Connection status">–</span>
@@ -217,66 +218,84 @@
               <div id="config-output" class="mono-box mt-8"></div>
             </div>
 
-            <!-- Region routing panel -->
+            <!-- Region routing panel (redesigned compact visual) -->
             <div class="panel cfg-right">
               <div class="panel-header">
-                <h2>Region Routing</h2>
+                <h2>&#127758; Region Routing</h2>
                 <div class="inline-actions">
-                  <button id="refresh-regions-btn">↻ Refresh</button>
-                  <button id="save-regions-btn" class="btn-ok">✓ Save</button>
+                  <button id="refresh-regions-btn" class="btn-sm">↻ Refresh</button>
                 </div>
               </div>
 
-              <!-- Current state always visible at top -->
-              <div id="region-output" class="mono-box" style="min-height:60px;max-height:180px;margin-bottom:14px"></div>
+              <!-- Live region tree display -->
+              <div id="region-tree" class="region-tree-wrap"></div>
+              <div id="region-output" class="mono-box" style="min-height:0;max-height:80px;margin-bottom:10px;display:none"></div>
 
-              <div class="cfg-region-section">
-                <h3 class="form-title">&#127968; Home Region</h3>
-                <p class="form-hint">Packets arriving in this region are accepted. Use <code>#RegionName</code> format.</p>
-                <form id="region-home-form" class="row-form">
-                  <input name="name" placeholder="eg: #Europe" />
-                  <button type="submit">Set Home</button>
-                </form>
+              <!-- Home region -->
+              <div class="region-card">
+                <div class="region-card-icon">&#127968;</div>
+                <div class="region-card-body">
+                  <div class="region-card-title">Home Region</div>
+                  <p class="form-hint">Accept packets arriving in this region (use <code>#Name</code>)</p>
+                  <form id="region-home-form" class="row-form">
+                    <input name="name" placeholder="e.g. #Europe" />
+                    <button type="submit" class="btn-ok">Set</button>
+                  </form>
+                </div>
               </div>
 
-              <div class="cfg-region-section">
-                <h3 class="form-title">&#128193; Manage Regions</h3>
-                <p class="form-hint">Regions form a hierarchy for packet routing. Create child regions under a parent.</p>
-                <form id="region-put-form" class="row-form-3 mb-8">
-                  <input name="name"   placeholder="New region name" />
-                  <input name="parent" placeholder="Parent region (optional)" />
-                  <button type="submit">+ Create</button>
-                </form>
-                <form id="region-remove-form" class="row-form">
-                  <input name="name" placeholder="Region name to remove" />
-                  <button type="submit" class="btn-err">&#10005; Remove</button>
-                </form>
+              <!-- Create / remove region -->
+              <div class="region-card">
+                <div class="region-card-icon">&#128193;</div>
+                <div class="region-card-body">
+                  <div class="region-card-title">Add / Remove Region</div>
+                  <form id="region-put-form" class="row-form-3 mb-6">
+                    <input name="name"   placeholder="New region" />
+                    <input name="parent" placeholder="Parent (optional)" />
+                    <button type="submit" class="btn-ok">+ Add</button>
+                  </form>
+                  <form id="region-remove-form" class="row-form">
+                    <input name="name" placeholder="Region to remove" />
+                    <button type="submit" class="btn-err">&#10005; Remove</button>
+                  </form>
+                </div>
               </div>
 
-              <div class="cfg-region-section">
-                <h3 class="form-title">&#128225; Flood Policy</h3>
-                <p class="form-hint">Control which regions are allowed to flood-broadcast packets.</p>
-                <form id="region-flag-form" class="row-form-3">
-                  <select name="mode">
-                    <option value="allowf">Allow Flood</option>
-                    <option value="denyf">Deny Flood</option>
-                  </select>
-                  <input name="name" placeholder="Region name" />
-                  <button type="submit">Apply</button>
-                </form>
+              <!-- Flood policy -->
+              <div class="region-card">
+                <div class="region-card-icon">&#128225;</div>
+                <div class="region-card-body">
+                  <div class="region-card-title">Flood Policy</div>
+                  <form id="region-flag-form" class="row-form-3">
+                    <select name="mode">
+                      <option value="allowf">&#9989; Allow Flood</option>
+                      <option value="denyf">&#128683; Deny Flood</option>
+                    </select>
+                    <input name="name" placeholder="Region name" />
+                    <button type="submit">Apply</button>
+                  </form>
+                </div>
               </div>
 
-              <div class="cfg-region-section">
-                <h3 class="form-title">&#128269; Inspect &amp; Load Preset</h3>
-                <form id="region-get-form" class="row-form mb-8">
-                  <input name="name" placeholder="Region name to inspect" />
-                  <button type="submit">Inspect</button>
-                </form>
-                <form id="region-load-form" class="row-form-3">
-                  <input name="name" placeholder="Load named region preset" />
-                  <label class="flag-checkbox"><input type="checkbox" name="flood" /> Flood</label>
-                  <button type="submit">Load</button>
-                </form>
+              <!-- Inspect / load preset -->
+              <div class="region-card">
+                <div class="region-card-icon">&#128269;</div>
+                <div class="region-card-body">
+                  <div class="region-card-title">Inspect / Load Preset</div>
+                  <form id="region-get-form" class="row-form mb-6">
+                    <input name="name" placeholder="Region name" />
+                    <button type="submit">Inspect</button>
+                  </form>
+                  <form id="region-load-form" class="row-form-3">
+                    <input name="name" placeholder="Preset name" />
+                    <label class="flag-checkbox"><input type="checkbox" name="flood" /> Flood</label>
+                    <button type="submit" class="btn-ok">Load</button>
+                  </form>
+                </div>
+              </div>
+
+              <div style="margin-top:12px">
+                <button id="save-regions-btn" class="btn-ok" style="width:100%">&#10003; Save All Region Changes</button>
               </div>
 
             </div><!-- /cfg-right -->
@@ -323,6 +342,7 @@
                 <button class="type-btn active" data-log-filter="all">All</button>
                 <button class="type-btn" data-log-filter="pkt">RX/TX</button>
                 <button class="type-btn" data-log-filter="advert">Adverts</button>
+                <button class="type-btn companion-only" data-log-filter="msgs">Messages</button>
                 <button class="type-btn" data-log-filter="system">System</button>
               </div>
               <input id="log-filter" class="search-input" placeholder="Search…" />
@@ -342,6 +362,35 @@
           </div>
         </div>
       </section><!-- /logs -->
+
+      <!-- ════════ CHANNELS TAB (companion-only) ════════ -->
+      <section id="tab-channels" class="tab-pane companion-only" role="tabpanel">
+        <div class="ch-layout">
+
+          <!-- Sidebar: channel list -->
+          <div class="ch-sidebar panel">
+            <div class="panel-header">
+              <h2>Channels</h2>
+              <button id="btn-refresh-channels" class="btn-sm">↻</button>
+            </div>
+            <ul id="ch-list" class="ch-list"></ul>
+          </div>
+
+          <!-- Chat area -->
+          <div class="ch-chat panel">
+            <div class="panel-header">
+              <h2 id="ch-title">Select a channel</h2>
+              <span id="ch-subtitle" class="muted-txt"></span>
+            </div>
+            <div id="ch-messages" class="ch-messages-area"></div>
+            <form id="ch-send-form" class="ch-send-form">
+              <input id="ch-input" name="text" placeholder="Type a message… (max 133 chars)" maxlength="133" autocomplete="off" />
+              <button type="submit" class="btn-ok">Send &#8593;</button>
+            </form>
+          </div>
+
+        </div>
+      </section><!-- /channels -->
 
     </main><!-- /main -->
 

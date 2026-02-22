@@ -28,15 +28,25 @@ CMD_SET_ADVERT_LATLON = 14
 CMD_GET_BATT_AND_STORAGE = 20
 CMD_DEVICE_QUERY = 22
 CMD_GET_STATS = 56
+CMD_GET_CHANNEL = 0x1F
+CMD_SET_CHANNEL = 0x20
 
 STATS_TYPE_CORE = 0
 STATS_TYPE_RADIO = 1
 STATS_TYPE_PACKETS = 2
 
+RESP_CODE_OK = 0x00
 RESP_CODE_CONTACT = 3
 RESP_CODE_SELF_INFO = 5
+RESP_CODE_MSG_SENT = 0x06
+RESP_CODE_CONTACT_MSG = 0x07
+RESP_CODE_CHANNEL_MSG = 0x08
+RESP_CODE_NO_MORE_MSGS = 0x0A
 RESP_CODE_BATT_AND_STORAGE = 12
 RESP_CODE_DEVICE_INFO = 13
+RESP_CODE_CONTACT_MSG_V3 = 0x10
+RESP_CODE_CHANNEL_MSG_V3 = 0x11
+RESP_CODE_CHANNEL_INFO = 0x12
 RESP_CODE_STATS = 24
 
 PUSH_CODE_ADVERT = 0x80
@@ -155,6 +165,8 @@ class MeshState:
         self.battery: dict[str, Any] = {}
         self.stats: dict[str, Any] = {"core": {}, "radio": {}, "packets": {}}
         self.contacts: dict[str, Contact] = {}
+        self.channels: list[dict[str, Any]] = []  # index 0-7, each: {index, name, active}
+        self.messages: list[dict[str, Any]] = []  # received channel+contact messages
         self.events: list[dict[str, Any]] = []
         self.history: dict[str, list[float | int]] = {
             "ts": [],
@@ -240,6 +252,8 @@ class MeshState:
                 "battery": self.battery,
                 "stats": self.stats,
                 "contacts": contacts,
+                "channels": list(self.channels),
+                "messages": list(self.messages[-300:]),
                 "events": list(self.events[-100:]),
                 "history": {k: list(v) for k, v in self.history.items()},
             }
@@ -332,8 +346,111 @@ class CompanionClient:
         self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_RADIO]))
         self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_PACKETS]))
         self.send_cmd(bytes([CMD_GET_CONTACTS]))
+        # Fetch all channel slots (0-7)
+        for idx in range(8):
+            self.send_cmd(bytes([CMD_GET_CHANNEL, idx]))
+        # Pull any queued messages
+        self.send_cmd(bytes([CMD_SYNC_NEXT_MESSAGE]))
 
-    def _parse_contact(self, payload: bytes) -> None:
+    def _parse_channel_info(self, payload: bytes) -> None:
+        if len(payload) < 2:
+            return
+        idx = payload[1]
+        name = _decode_cstr(payload[2:34]) if len(payload) > 2 else ""
+        # Check if it's the public channel (all-zeros secret region => index 0 with no name is public)
+        if idx == 0 and not name:
+            name = "#public"
+        with self.state._lock:
+            # Replace or insert channel entry
+            channels = [c for c in self.state.channels if c["index"] != idx]
+            if name:  # non-empty = active channel slot
+                channels.append({"index": idx, "name": name, "active": True})
+                channels.sort(key=lambda c: c["index"])
+            self.state.channels = channels
+
+    def _parse_channel_msg(self, payload: bytes) -> None:
+        """Parse RESP_CODE_CHANNEL_MSG (0x08) and RESP_CODE_CHANNEL_MSG_V3 (0x11)."""
+        if len(payload) < 8:
+            return
+        ptype = payload[0]
+        snr: float | None = None
+        off = 1
+        if ptype == RESP_CODE_CHANNEL_MSG_V3:  # V3: 1 byte SNR + 2 reserved
+            snr_raw = payload[off]
+            snr = (snr_raw if snr_raw < 128 else snr_raw - 256) / 4.0
+            off += 3
+        channel_idx = payload[off]
+        path_len = payload[off + 1]
+        txt_type = payload[off + 2]
+        ts = struct.unpack_from("<I", payload, off + 3)[0]
+        text_bytes = payload[off + 7:]
+        text = text_bytes.decode("utf-8", errors="replace")
+        hop_str = "Direct" if path_len == 0 else (f"{path_len} hop{'s' if path_len != 1 else ''}" if path_len < 255 else "–")
+        msg = {
+            "msg_type": "channel",
+            "channel_idx": channel_idx,
+            "path_len": path_len,
+            "hop_str": hop_str,
+            "txt_type": txt_type,
+            "ts": ts,
+            "text": text,
+            "snr": snr,
+        }
+        with self.state._lock:
+            self.state.messages.append(msg)
+            if len(self.state.messages) > 500:
+                self.state.messages = self.state.messages[-500:]
+        # Resolve channel name for event
+        ch_name = next((c["name"] for c in self.state.channels if c["index"] == channel_idx), f"ch{channel_idx}")
+        self.state.add_event("chan_msg", {
+            "channel_idx": channel_idx, "channel": ch_name, "text": text[:80],
+            "path_len": path_len, "snr": snr,
+        })
+
+    def _parse_contact_msg(self, payload: bytes) -> None:
+        """Parse RESP_CODE_CONTACT_MSG (0x07) and RESP_CODE_CONTACT_MSG_V3 (0x10)."""
+        if len(payload) < 15:
+            return
+        ptype = payload[0]
+        snr: float | None = None
+        off = 1
+        if ptype == RESP_CODE_CONTACT_MSG_V3:
+            snr_raw = payload[off]
+            snr = (snr_raw if snr_raw < 128 else snr_raw - 256) / 4.0
+            off += 3
+        pubkey_prefix = payload[off:off + 6].hex()
+        path_len = payload[off + 6]
+        txt_type = payload[off + 7]
+        ts = struct.unpack_from("<I", payload, off + 8)[0]
+        text_off = off + 12
+        if txt_type == 2:
+            text_off += 4  # skip 4-byte signature
+        text = payload[text_off:].decode("utf-8", errors="replace")
+        # Resolve sender name
+        contact = self.state.contacts.get(pubkey_prefix) or next(
+            (c for k, c in self.state.contacts.items() if k.startswith(pubkey_prefix)), None
+        )
+        sender = contact.name if contact else pubkey_prefix
+        hop_str = "Direct" if path_len == 0 else (f"{path_len} hop{'s' if path_len != 1 else ''}" if path_len < 255 else "–")
+        msg = {
+            "msg_type": "contact",
+            "sender": sender,
+            "pubkey_prefix": pubkey_prefix,
+            "path_len": path_len,
+            "hop_str": hop_str,
+            "txt_type": txt_type,
+            "ts": ts,
+            "text": text,
+            "snr": snr,
+        }
+        with self.state._lock:
+            self.state.messages.append(msg)
+            if len(self.state.messages) > 500:
+                self.state.messages = self.state.messages[-500:]
+        self.state.add_event("contact_msg", {
+            "sender": sender, "text": text[:80], "path_len": path_len, "snr": snr,
+        })
+
         if len(payload) < 148:
             return
         pubkey_raw = payload[1:33]
@@ -451,7 +568,17 @@ class CompanionClient:
             self._parse_contact(payload)
             if len(payload) >= 33:
                 pubkey = payload[1:33].hex()
-                self.state.add_event("rx_advert", {"pubkey": pubkey[:16]})
+                # Include rich data in event so log shows name + location
+                contact = self.state.contacts.get(pubkey)
+                event_data: dict[str, Any] = {"pubkey": pubkey[:16]}
+                if contact:
+                    event_data["name"] = contact.name
+                    if contact.lat is not None and (abs(contact.lat) > 0.0001 or abs(contact.lon or 0) > 0.0001):
+                        event_data["lat"] = round(contact.lat, 6)
+                        event_data["lon"] = round(contact.lon or 0, 6)
+                    event_data["kind"] = contact.kind
+                    event_data["hops"] = contact.out_path_len
+                self.state.add_event("rx_advert", event_data)
         elif payload_type == RESP_CODE_SELF_INFO:
             self._parse_self_info(payload)
         elif payload_type == RESP_CODE_DEVICE_INFO:
@@ -460,6 +587,16 @@ class CompanionClient:
             self._parse_battery(payload)
         elif payload_type == RESP_CODE_STATS:
             self._parse_stats(payload)
+        elif payload_type == RESP_CODE_CHANNEL_INFO:
+            self._parse_channel_info(payload)
+        elif payload_type in (RESP_CODE_CHANNEL_MSG, RESP_CODE_CHANNEL_MSG_V3):
+            self._parse_channel_msg(payload)
+        elif payload_type in (RESP_CODE_CONTACT_MSG, RESP_CODE_CONTACT_MSG_V3):
+            self._parse_contact_msg(payload)
+            # Fetch the next queued message automatically
+            self.send_cmd(bytes([CMD_SYNC_NEXT_MESSAGE]))
+        elif payload_type == RESP_CODE_NO_MORE_MSGS:
+            pass  # No more queued messages — nothing to do
         elif payload_type == PUSH_CODE_ADVERT and len(payload) >= 33:
             self.state.touch_contact_advert(payload[1:33].hex())
         elif payload_type == PUSH_CODE_MSG_WAITING:
@@ -594,8 +731,12 @@ class RepeaterClient:
                 payload = _parse_json_text(line)
                 if payload:
                     self.state.update_last_frame()
-                    return str(payload.get("reply", ""))
-                return line
+                    reply_str = str(payload.get("reply", ""))
+                    # Strip CLI prompt artifact, e.g. "> 869.525" → "869.525"
+                    if reply_str.startswith("> "):
+                        reply_str = reply_str[2:]
+                    return reply_str.strip()
+                return line.strip()
             except (OSError, ConnectionError, socket.timeout) as ex:
                 self._close()
                 raise ConnectionError(str(ex)) from ex
@@ -915,7 +1056,29 @@ class App:
             ts = int(time.time())
             payload = bytes([CMD_SEND_CHANNEL_TXT_MSG, 0, channel]) + struct.pack("<I", ts) + text
             self.client.send_cmd(payload)
+            # Store the outbound message locally so it shows in the channels view
+            ch_name = next((c["name"] for c in self.state.channels if c["index"] == channel), f"ch{channel}")
+            out_msg = {
+                "msg_type": "channel",
+                "channel_idx": channel,
+                "path_len": -1,
+                "hop_str": "Sent",
+                "txt_type": 0,
+                "ts": ts,
+                "text": text.decode("utf-8", errors="replace"),
+                "snr": None,
+                "outbound": True,
+            }
+            with self.state._lock:
+                self.state.messages.append(out_msg)
+            self.state.add_event("chan_msg_sent", {"channel": ch_name, "text": text.decode("utf-8", errors="replace")[:60]})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             return {"channel": channel, "bytes": len(text)}
+
+        if name == "get_channels":
+            for idx in range(8):
+                self.client.send_cmd(bytes([CMD_GET_CHANNEL, idx]))
+            return {"queued": True}
 
         if name == "get_next_message":
             self.client.send_cmd(bytes([CMD_SYNC_NEXT_MESSAGE]))

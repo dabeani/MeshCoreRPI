@@ -12,6 +12,9 @@ const app = {
   activeTab: 'dashboard',
   contactTypeFilter: 'all',
   logTypeFilter: 'all',
+  activeChannel: null,       // currently selected channel index (number|null)
+  unreadChannels: new Set(), // channel indices with unread messages
+  lastMsgCount: 0,           // track when new messages arrive
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
@@ -110,6 +113,11 @@ function switchTab(tabName) {
   }
   if (tabName === 'logs' && app.snap) {
     renderLog(app.snap.events || [], document.getElementById('log-filter')?.value || '');
+  }
+  if (tabName === 'channels' && app.snap) {
+    app.unreadChannels.clear();
+    updateChannelBadge();
+    renderChannels(app.snap);
   }
   if (tabName === 'config' && app.snap?.role === 'repeater' && !app.configLoaded) {
     loadRepeaterConfig();
@@ -525,6 +533,7 @@ function renderLog(events, filter = '') {
     if (catFilter === 'all')    return true;
     if (catFilter === 'pkt')    return type === 'pkt_rx' || type === 'pkt_tx';
     if (catFilter === 'advert') return type === 'rx_advert' || type === 'neighbor_new';
+    if (catFilter === 'msgs')   return type === 'chan_msg' || type === 'contact_msg' || type === 'chan_msg_sent';
     if (catFilter === 'system') return /^(connected|error|reboot|config_set|config_save|self_info|command|region_home|region_put|region_remove|region_allowf|region_denyf|region_load|region_get)$/.test(type);
     return true;
   };
@@ -583,9 +592,26 @@ function renderLog(events, filter = '') {
         return parts.join(' \u00b7 ');
       }
       case 'rx_advert': {
-        const name = findName(p.pubkey);
+        const name = p.name || findName(p.pubkey);
         const who  = name ? `${name} (${(p.pubkey||'').slice(0,12)}\u2026)` : `${(p.pubkey||'').slice(0,16)}\u2026`;
-        return `Advert from ${who}`;
+        const kindMap = {1:'Client',2:'Repeater',3:'Server',4:'Sensor'};
+        const kindStr = p.kind != null ? ` · ${kindMap[p.kind] || 'Node'}` : '';
+        const locStr  = p.lat  != null ? ` · \uD83D\uDCCD ${p.lat.toFixed(4)}, ${p.lon?.toFixed(4)}` : '';
+        const hopStr  = p.hops === 0   ? ' · Direct' : p.hops > 0 ? ` · ${p.hops} hop${p.hops !== 1 ? 's' : ''}` : '';
+        return `Advert from ${who}${kindStr}${locStr}${hopStr}`;
+      }
+      case 'chan_msg': {
+        const snrStr = p.snr != null ? ` · SNR ${p.snr} dB` : '';
+        const hopStr = p.path_len === 0 ? ' · Direct' : p.path_len > 0 ? ` · ${p.path_len} hop${p.path_len !== 1 ? 's' : ''}` : '';
+        return `[${p.channel || `ch${p.channel_idx}`}] ${(p.text||'').slice(0,80)}${hopStr}${snrStr}`;
+      }
+      case 'chan_msg_sent': {
+        return `\u2191 Sent to [${p.channel || '?'}]: ${(p.text||'').slice(0,60)}`;
+      }
+      case 'contact_msg': {
+        const snrStr = p.snr != null ? ` · SNR ${p.snr} dB` : '';
+        const hopStr = p.path_len === 0 ? ' · Direct' : p.path_len > 0 ? ` · ${p.path_len} hop${p.path_len !== 1 ? 's' : ''}` : '';
+        return `\uD83D\uDCE8 From ${p.sender || p.pubkey_prefix || '?'}: ${(p.text||'').slice(0,80)}${hopStr}${snrStr}`;
       }
       case 'neighbor_new': {
         const name = findName(p.pubkey);
@@ -618,6 +644,107 @@ function renderLog(events, filter = '') {
       <td style="font-size:11px;font-family:monospace">${detailStr(e)}</td>
     </tr>`
   ).join('');
+}
+
+// ─── Channels ────────────────────────────────────────
+function updateChannelBadge() {
+  const badge = document.getElementById('ch-tab-badge');
+  if (!badge) return;
+  const count = app.unreadChannels.size;
+  badge.textContent = count;
+  badge.style.display = count ? '' : 'none';
+}
+
+function fmtMsgTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  const h = d.getHours().toString().padStart(2,'0');
+  const m = d.getMinutes().toString().padStart(2,'0');
+  return `${h}:${m}`;
+}
+
+function renderChannels(snap) {
+  const channels  = snap.channels  || [];
+  const messages  = snap.messages  || [];
+  const listEl    = document.getElementById('ch-list');
+  const msgArea   = document.getElementById('ch-messages');
+  const titleEl   = document.getElementById('ch-title');
+  const subtitleEl = document.getElementById('ch-subtitle');
+  if (!listEl || !msgArea) return;
+
+  // If no active channel, default to first available
+  if (app.activeChannel === null && channels.length) {
+    app.activeChannel = channels[0].index;
+  }
+
+  // Render sidebar list
+  listEl.innerHTML = channels.map(ch => {
+    const isActive  = ch.index === app.activeChannel;
+    const unread    = app.unreadChannels.has(ch.index);
+    const chMsgs    = messages.filter(m => m.msg_type === 'channel' && m.channel_idx === ch.index);
+    const last      = chMsgs[chMsgs.length - 1];
+    const lastText  = last ? last.text.slice(0, 28) + (last.text.length > 28 ? '…' : '') : 'No messages yet';
+    const icon      = ch.index === 0 ? '#' : String(ch.index);
+    return `<li class="ch-list-item${isActive ? ' active' : ''}" data-ch-idx="${ch.index}">
+      <div class="ch-item-icon">${icon}</div>
+      <div class="ch-item-info">
+        <div class="ch-item-name">${_esc(ch.name)}</div>
+        <div class="ch-item-sub">${_esc(lastText)}</div>
+      </div>
+      ${unread ? `<div class="ch-item-badge">${unread}</div>` : ''}
+    </li>`;
+  }).join('');
+
+  // Render chat area
+  if (app.activeChannel === null) {
+    titleEl && (titleEl.textContent = 'Select a channel');
+    subtitleEl && (subtitleEl.textContent = '');
+    msgArea.innerHTML = `<div class="ch-empty"><div class="ch-empty-icon">&#128172;</div>No channels configured yet.<br><small>Channels are fetched from the device on connect.</small></div>`;
+    return;
+  }
+
+  const activeCh = channels.find(c => c.index === app.activeChannel);
+  const chName = activeCh?.name || `Channel ${app.activeChannel}`;
+  if (titleEl)    titleEl.textContent = chName;
+  if (subtitleEl) subtitleEl.textContent = `Slot ${app.activeChannel}`;
+
+  // Filter messages for active channel
+  const chMsgs = messages.filter(m =>
+    m.msg_type === 'channel' && m.channel_idx === app.activeChannel
+  );
+
+  if (!chMsgs.length) {
+    msgArea.innerHTML = `<div class="ch-empty"><div class="ch-empty-icon">&#128172;</div>No messages yet.<br><small>Messages will appear here as they arrive.</small></div>`;
+    return;
+  }
+
+  // Check if already scrolled to bottom before re-render
+  const wasAtBottom = msgArea.scrollTop + msgArea.clientHeight >= msgArea.scrollHeight - 20;
+
+  msgArea.innerHTML = chMsgs.map(m => {
+    const dir = m.outbound ? 'outbound' : 'inbound';
+    const snrStr  = m.snr  != null ? `SNR ${m.snr} dB` : '';
+    const hopStr  = m.path_len === 0 ? 'Direct' : m.path_len > 0 ? `${m.path_len} hop${m.path_len !== 1 ? 's' : ''}` : '';
+    const metaParts = [m.outbound ? 'You' : '', fmtMsgTime(m.ts)].filter(Boolean);
+    const footerParts = [hopStr, snrStr].filter(Boolean);
+    return `<div class="ch-bubble ${dir}">
+      <div class="ch-bubble-meta">
+        ${m.outbound ? '' : `<span class="ch-bubble-sender">${_esc(chName)}</span>`}
+        <span>${metaParts.join(' · ')}</span>
+      </div>
+      <div class="ch-bubble-text">${_esc(m.text)}</div>
+      ${footerParts.length ? `<div class="ch-bubble-footer">${footerParts.join(' · ')}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  if (wasAtBottom) {
+    msgArea.scrollTop = msgArea.scrollHeight;
+  }
+}
+
+// Helper: escape HTML special characters
+function _esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ─── HW Stats ────────────────────────────────────────
@@ -779,6 +906,20 @@ function renderAll(snap) {
   if (app.activeTab === 'charts')   renderCharts(snap);
   if (app.activeTab === 'contacts') renderContacts(snap, document.getElementById('contact-search')?.value || '');
   if (app.activeTab === 'logs')     renderLog(snap.events || [], document.getElementById('log-filter')?.value || '');
+  if (app.activeTab === 'channels') renderChannels(snap);
+
+  // Track new messages and update the tab badge (even off-tab)
+  const msgs = snap.messages || [];
+  if (msgs.length > app.lastMsgCount) {
+    const newMsgs = msgs.slice(app.lastMsgCount);
+    newMsgs.forEach(m => {
+      if (m.msg_type === 'channel' && !m.outbound && app.activeTab !== 'channels') {
+        app.unreadChannels.add(m.channel_idx);
+      }
+    });
+    app.lastMsgCount = msgs.length;
+    updateChannelBadge();
+  }
 }
 
 // ─── Wire UI ─────────────────────────────────────────
@@ -1016,6 +1157,35 @@ function wireUi() {
   document.getElementById('btn-sync-time-cfg')?.addEventListener('click', async () => {
     const d = await sendCommand('sync_time');
     setOutput('companion-cfg-output', d?.ok ? `✓ Time synced: ${new Date().toLocaleString()}` : `Error: ${d?.error}`);
+  });
+
+  // ── Channels tab ────────────────────────────────────
+  document.getElementById('btn-refresh-channels')?.addEventListener('click', async () => {
+    await sendCommand('get_channels');
+  });
+
+  // Channel list item click (delegated)
+  document.getElementById('ch-list')?.addEventListener('click', e => {
+    const item = e.target.closest('[data-ch-idx]');
+    if (!item) return;
+    const idx = parseInt(item.dataset.chIdx, 10);
+    app.activeChannel = idx;
+    app.unreadChannels.delete(idx);
+    updateChannelBadge();
+    if (app.snap) renderChannels(app.snap);
+  });
+
+  // Channel message send form
+  document.getElementById('ch-send-form')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const text = new FormData(e.target).get('text')?.trim();
+    if (!text || app.activeChannel === null) return;
+    const input = document.getElementById('ch-input');
+    if (input) input.disabled = true;
+    await sendCommand('public_msg', { text, channel: app.activeChannel });
+    e.target.reset();
+    if (input) input.disabled = false;
+    input?.focus();
   });
 }
 
