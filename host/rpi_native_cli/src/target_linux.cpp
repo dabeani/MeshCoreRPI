@@ -138,12 +138,30 @@ void LinuxBoard::begin() {
   boot_voltage_mv = getBattMilliVolts();
 }
 
+bool LinuxBoard::setAdcMultiplier(float multiplier) {
+  if (multiplier <= 0.0f) {
+    adc_multiplier = 1.0f;
+    return true;
+  }
+  adc_multiplier = multiplier;
+  return true;
+}
+
 uint16_t LinuxBoard::getBattMilliVolts() {
   uint16_t measured_mv = 0;
+  uint32_t base_mv = (boot_voltage_mv > 0) ? boot_voltage_mv : 5000;
   if (getSysfsBatteryMilliVolts(measured_mv)) {
-    return measured_mv;
+    base_mv = measured_mv;
   }
-  return boot_voltage_mv > 0 ? boot_voltage_mv : 5000;
+
+  const float scaled = static_cast<float>(base_mv) * adc_multiplier;
+  if (scaled <= 0.0f) {
+    return 0;
+  }
+  if (scaled >= 65535.0f) {
+    return 65535;
+  }
+  return static_cast<uint16_t>(scaled + 0.5f);
 }
 
 float LinuxBoard::getMCUTemperature() {

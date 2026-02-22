@@ -10,13 +10,14 @@
 
 class LinuxBoard : public mesh::MainBoard {
   uint16_t boot_voltage_mv = 5000;
+  float adc_multiplier = 1.0f;
 
 public:
   void begin();
   uint16_t getBattMilliVolts() override;
   float getMCUTemperature() override;
-  bool setAdcMultiplier(float) override { return true; }
-  float getAdcMultiplier() const override { return 1.0f; }
+  bool setAdcMultiplier(float multiplier) override;
+  float getAdcMultiplier() const override { return adc_multiplier; }
   const char* getManufacturerName() const override { return "RaspberryPi"; }
   void reboot() override;
   uint8_t getStartupReason() const override { return BD_STARTUP_NORMAL; }
