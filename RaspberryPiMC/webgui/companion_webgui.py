@@ -1346,8 +1346,9 @@ class App:
             denied_str  = self.client.send_cli_command("region list denied")
 
             _bad = {"", "-none-", "err", "error"}
-            allowed_names = [n.strip() for n in allowed_str.split() if n.strip().lower() not in _bad]
-            denied_names  = [n.strip() for n in denied_str.split()  if n.strip().lower() not in _bad]
+            # CLI may return comma-separated or whitespace-separated names (e.g. "*,at,at-ost")
+            allowed_names = [n.strip() for n in re.split(r'[,\s]+', allowed_str) if n.strip().lower() not in _bad]
+            denied_names  = [n.strip() for n in re.split(r'[,\s]+', denied_str)  if n.strip().lower() not in _bad]
             flood_set = set(allowed_names)
             seen: dict[str, None] = {}
             for n in allowed_names + denied_names:
