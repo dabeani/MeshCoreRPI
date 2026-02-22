@@ -725,8 +725,9 @@ function renderMessages(snap) {
     if (!lastTs[m.pubkey_prefix] || m.ts > lastTs[m.pubkey_prefix]) lastTs[m.pubkey_prefix] = m.ts;
   });
 
-  // Filter + sort contacts
+  // Filter + sort contacts — only users (kind=1/chat), exclude repeaters/sensors/rooms
   let filtered = contacts.filter(c => {
+    if (c.kind !== 1) return false;  // skip repeaters (2), rooms (3), sensors (4)
     if (!query) return true;
     return c.name.toLowerCase().includes(query) || c.pubkey.includes(query);
   });
