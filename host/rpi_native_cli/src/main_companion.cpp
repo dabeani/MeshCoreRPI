@@ -64,10 +64,7 @@ void loadEnvFileDefaults(const char* path) {
       value = value.substr(1, value.size() - 2);
     }
 
-    const char* current = std::getenv(key.c_str());
-    if (current == nullptr || current[0] == '\0') {
-      setenv(key.c_str(), value.c_str(), 0);
-    }
+    setenv(key.c_str(), value.c_str(), 1);
   }
 }
 
