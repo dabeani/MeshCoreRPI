@@ -461,7 +461,7 @@ int main(int argc, char** argv) {
             continue;
           }
           if (!line.empty()) {
-            char reply[200]{};
+            char reply[1024]{};
             {
               std::lock_guard<std::mutex> lock(command_mutex);
               the_mesh.handleCommand(0, line.data(), reply);
@@ -478,7 +478,7 @@ int main(int argc, char** argv) {
         tcp_bridge.loop([&](const std::string& cmd, std::string& reply) {
           std::vector<char> command(cmd.begin(), cmd.end());
           command.push_back('\0');
-          char out[240]{};
+          char out[1024]{};
           {
             std::lock_guard<std::mutex> lock(command_mutex);
             the_mesh.handleCommand(0, command.data(), out);
