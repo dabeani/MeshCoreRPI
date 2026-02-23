@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import errno
+import hashlib
 import json
 import os
 import queue
@@ -18,6 +20,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+_WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 CMD_APP_START = 1
 CMD_SEND_TXT_MSG = 2
@@ -1198,30 +1202,8 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             self._send_json(self.server.state.snapshot())
             return
 
-        if parsed.path == "/api/events":
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-
-            q = self.server.bus.subscribe()
-            try:
-                init = {"type": "state", "payload": self.server.state.snapshot(), "ts": int(time.time())}
-                self.wfile.write(f"data: {json.dumps(init)}\n\n".encode("utf-8"))
-                self.wfile.flush()
-                while True:
-                    try:
-                        event = q.get(timeout=15.0)
-                    except queue.Empty:
-                        event = {"type": "ping", "ts": int(time.time())}
-                    self.wfile.write(f"data: {json.dumps(event)}\n\n".encode("utf-8"))
-                    self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
-                pass
-            finally:
-                self.server.bus.unsubscribe(q)
-            return
+        if parsed.path == "/ws":
+            return self._handle_websocket_events()
 
         if parsed.path == "/":
             return self._serve_static("index.html", "text/html; charset=utf-8")
@@ -1231,6 +1213,64 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             return self._serve_static("styles.css", "text/css; charset=utf-8")
 
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+
+    def _handle_websocket_events(self) -> None:
+        if self.headers.get("Upgrade", "").lower() != "websocket":
+            self.send_error(HTTPStatus.BAD_REQUEST, "Expected websocket upgrade")
+            return
+
+        ws_key = self.headers.get("Sec-WebSocket-Key", "").strip()
+        if not ws_key:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Missing websocket key")
+            return
+
+        accept = base64.b64encode(hashlib.sha1((ws_key + _WS_MAGIC).encode("utf-8")).digest()).decode("ascii")
+
+        self.send_response(HTTPStatus.SWITCHING_PROTOCOLS)
+        self.send_header("Upgrade", "websocket")
+        self.send_header("Connection", "Upgrade")
+        self.send_header("Sec-WebSocket-Accept", accept)
+        self.end_headers()
+
+        q = self.server.bus.subscribe()
+        try:
+            init = {"type": "state", "payload": self.server.state.snapshot(), "ts": int(time.time())}
+            self._ws_send_json(init)
+
+            initial_log_text = _read_packet_log_tail(400)
+            initial_log_lines = [line for line in str(initial_log_text).splitlines() if line and line != "-none-"]
+            self._ws_send_json({"type": "rxlog_snapshot", "payload": {"lines": initial_log_lines}, "ts": int(time.time())})
+
+            while True:
+                try:
+                    event = q.get(timeout=15.0)
+                except queue.Empty:
+                    event = {"type": "ping", "ts": int(time.time())}
+                self._ws_send_json(event)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            self.server.bus.unsubscribe(q)
+
+    def _ws_send_json(self, payload: dict[str, Any]) -> None:
+        data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        frame = self._ws_build_text_frame(data)
+        self.wfile.write(frame)
+        self.wfile.flush()
+
+    @staticmethod
+    def _ws_build_text_frame(payload: bytes) -> bytes:
+        length = len(payload)
+        header = bytearray([0x81])  # FIN + text frame
+        if length < 126:
+            header.append(length)
+        elif length <= 0xFFFF:
+            header.append(126)
+            header.extend(struct.pack("!H", length))
+        else:
+            header.append(127)
+            header.extend(struct.pack("!Q", length))
+        return bytes(header) + payload
 
     def _serve_static(self, filename: str, content_type: str) -> None:
         p = self.server.static_dir / filename
@@ -1298,6 +1338,72 @@ class App:
         self.bind_host = bind_host
         self.bind_port = bind_port
         self.static_dir = static_dir
+        self.stop_event = threading.Event()
+
+    def _packet_log_watch_loop(self) -> None:
+        partial_line = ""
+        current_path: Path | None = None
+        current_inode: int | None = None
+        current_pos = 0
+
+        def pick_log_path() -> Path | None:
+            paths = _packet_log_candidate_paths()
+            for candidate in paths:
+                if candidate.exists() and candidate.is_file():
+                    return candidate
+            return paths[0] if paths else None
+
+        while not self.stop_event.is_set():
+            try:
+                target = pick_log_path()
+                if target is None:
+                    time.sleep(0.8)
+                    continue
+
+                try:
+                    st = target.stat()
+                except OSError:
+                    time.sleep(0.8)
+                    continue
+
+                inode = st.st_ino
+                if current_path != target or current_inode != inode:
+                    current_path = target
+                    current_inode = inode
+                    current_pos = st.st_size
+                    partial_line = ""
+                    time.sleep(0.8)
+                    continue
+
+                if st.st_size < current_pos:
+                    current_pos = 0
+                    partial_line = ""
+
+                if st.st_size == current_pos:
+                    time.sleep(0.8)
+                    continue
+
+                with target.open("rb") as f:
+                    f.seek(current_pos)
+                    raw = f.read()
+                    current_pos = f.tell()
+
+                if not raw:
+                    time.sleep(0.3)
+                    continue
+
+                decoded = raw.decode("utf-8", errors="replace")
+                text = partial_line + decoded
+                lines = text.splitlines()
+                if text and text[-1] not in ("\n", "\r"):
+                    partial_line = lines.pop() if lines else text
+                else:
+                    partial_line = ""
+
+                if lines:
+                    self.bus.publish({"type": "rxlog_lines", "payload": {"lines": lines[-400:]}, "ts": int(time.time())})
+            except Exception:
+                time.sleep(1.0)
 
     def _companion_command(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         assert isinstance(self.client, CompanionClient)
@@ -1351,8 +1457,7 @@ class App:
             return {"cleared": True}
 
         if name == "header_stats":
-            text = self.client.send_cli_command("rxlog 5000")
-            return _compute_packet_header_breakdown_from_text(text, source="repeater:rxlog")
+            return _compute_packet_header_breakdown()
 
         if name == "public_msg":
             text = str(args.get("text", "")).encode("utf-8")[:180]
@@ -1752,6 +1857,8 @@ class App:
     def run(self) -> None:
         t = threading.Thread(target=self.client.run, daemon=True)
         t.start()
+        t_log = threading.Thread(target=self._packet_log_watch_loop, daemon=True)
+        t_log.start()
 
         server = MeshWebServer((self.bind_host, self.bind_port), self.state, self.bus, self.static_dir, self.command_handler)
         print(f"[webgui] role={self.role} listening on http://{self.bind_host}:{self.bind_port}")
@@ -1760,6 +1867,7 @@ class App:
         except KeyboardInterrupt:
             pass
         finally:
+            self.stop_event.set()
             server.server_close()
             self.client.stop()
 

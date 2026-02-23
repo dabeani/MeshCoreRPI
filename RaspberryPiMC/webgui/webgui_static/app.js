@@ -25,14 +25,16 @@ const app = {
   dmScrollPos: {},           // pubkey_prefix -> last saved scrollTop
   dmEverViewed: {},          // pubkey_prefix -> bool
   rxlogLiveScroll: false,    // whether RxLog live scroll is enabled
-  rxlogInterval: null,       // interval ID for live scroll
   latestRxLogText: '',       // cached raw packet log text
+  latestRxLogLines: [],      // cached packet log lines for incremental updates
   headerStats: null,         // cached backend packet header stats
   headerStatsLastFetch: 0,   // unix ms of last fetch
   headerStatsFetching: false,
   lastStateRenderAt: 0,      // unix ms of last renderAll() update
   lastRxLogFetchAt: 0,       // unix ms of last refreshCombinedLog() fetch
-  liveFallbackInterval: null,
+  ws: null,
+  wsConnected: false,
+  wsRetryTimer: null,
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
@@ -134,7 +136,11 @@ function switchTab(tabName) {
     renderContacts(app.snap, document.getElementById('contact-search')?.value || '');
   }
   if (tabName === 'logs' && app.snap) {
-    refreshCombinedLog();
+    if (app.latestRxLogLines.length) {
+      renderCombinedLog();
+    } else {
+      refreshCombinedLog();
+    }
   }
   if (tabName === 'messages' && app.snap) {
     app.unreadDms.clear();
@@ -165,15 +171,39 @@ async function refreshCombinedLog() {
   const d = await sendCommand('rxlog', { lines });
   app.lastRxLogFetchAt = Date.now();
   if (d?.ok) {
-    app.latestRxLogText = d.payload?.text ?? '';
+    _setRxLogFromText(d.payload?.text ?? '');
     renderCombinedLog();
     if (app.rxlogLiveScroll) {
       out.scrollTop = out.scrollHeight;
     }
   } else {
-    app.latestRxLogText = `Error: ${d?.error || 'rxlog failed'}`;
+    _setRxLogFromText(`Error: ${d?.error || 'rxlog failed'}`);
     renderCombinedLog();
   }
+}
+
+function _normalizeLogLines(lines) {
+  return (lines || []).map(v => String(v ?? '').replace(/\r/g, '')).filter(Boolean);
+}
+
+function _setRxLogFromText(text) {
+  const lines = String(text ?? '').split('\n').map(v => v.replace(/\r/g, '')).filter(Boolean);
+  const maxLines = 5000;
+  app.latestRxLogLines = lines.length > maxLines ? lines.slice(lines.length - maxLines) : lines;
+  app.latestRxLogText = app.latestRxLogLines.join('\n');
+  app.lastRxLogFetchAt = Date.now();
+}
+
+function _appendRxLogLines(lines) {
+  const incoming = _normalizeLogLines(lines);
+  if (!incoming.length) return;
+  app.latestRxLogLines.push(...incoming);
+  const maxLines = 5000;
+  if (app.latestRxLogLines.length > maxLines) {
+    app.latestRxLogLines = app.latestRxLogLines.slice(app.latestRxLogLines.length - maxLines);
+  }
+  app.latestRxLogText = app.latestRxLogLines.join('\n');
+  app.lastRxLogFetchAt = Date.now();
 }
 
 function _packetTypeKeyFromCode(code) {
@@ -1617,28 +1647,6 @@ function renderAll(snap) {
   }
 }
 
-function startLiveFallbackPolling() {
-  if (app.liveFallbackInterval) return;
-  app.liveFallbackInterval = setInterval(async () => {
-    const now = Date.now();
-
-    if (app.activeTab === 'logs' && !app.rxlogLiveScroll) {
-      if (now - app.lastRxLogFetchAt > 3000) {
-        await refreshCombinedLog();
-      }
-    }
-
-    if (now - app.lastStateRenderAt > 8000) {
-      try {
-        const snap = await fetch('/api/state').then(r => r.json());
-        if (snap) renderAll(snap);
-      } catch (_) {
-        // Ignore transient fetch failures; SSE may recover independently.
-      }
-    }
-  }, 3000);
-}
-
 // ─── Wire UI ─────────────────────────────────────────
 function wireUi() {
   // Tab buttons
@@ -1722,6 +1730,7 @@ function wireUi() {
     const d = await sendCommand('clear_rxlog');
     if (d?.ok) {
       app.latestRxLogText = '';
+      app.latestRxLogLines = [];
       if (app.snap) app.snap.events = [];
       renderCombinedLog();
     } else {
@@ -1731,14 +1740,6 @@ function wireUi() {
 
   document.getElementById('rxlog-live-scroll')?.addEventListener('change', e => {
     app.rxlogLiveScroll = e.target.checked;
-    if (app.rxlogLiveScroll) {
-      app.rxlogInterval = setInterval(refreshCombinedLog, 2000); // refresh every 2 seconds
-    } else {
-      if (app.rxlogInterval) {
-        clearInterval(app.rxlogInterval);
-        app.rxlogInterval = null;
-      }
-    }
   });
 
   // Config: delegated set-button click from grouped param display
@@ -1968,14 +1969,58 @@ function wireUi() {
   });
 }
 
-// ─── SSE Connection ──────────────────────────────────
-function connectSSE() {
-  const es = new EventSource('/api/events');
-  es.onmessage = evt => {
-    const msg = JSON.parse(evt.data);
-    if (msg.type === 'state' && msg.payload) renderAll(msg.payload);
+function _handleRealtimeEvent(msg) {
+  if (!msg || typeof msg !== 'object') return;
+  if (msg.type === 'state' && msg.payload) {
+    renderAll(msg.payload);
+    return;
+  }
+  if (msg.type === 'rxlog_snapshot') {
+    _setRxLogFromText((msg.payload?.lines || []).join('\n'));
+    if (app.activeTab === 'logs') renderCombinedLog();
+    return;
+  }
+  if (msg.type === 'rxlog_lines') {
+    _appendRxLogLines(msg.payload?.lines || []);
+    if (app.activeTab === 'logs') {
+      renderCombinedLog();
+      if (app.rxlogLiveScroll) {
+        const out = document.getElementById('combined-log-output');
+        if (out) out.scrollTop = out.scrollHeight;
+      }
+    }
+  }
+}
+
+function connectWebSocket() {
+  if (app.ws && (app.ws.readyState === WebSocket.OPEN || app.ws.readyState === WebSocket.CONNECTING)) return;
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const url = `${proto}://${window.location.host}/ws`;
+  const ws = new WebSocket(url);
+  app.ws = ws;
+
+  ws.onopen = () => {
+    app.wsConnected = true;
+    clearTimeout(app.wsRetryTimer);
   };
-  es.onerror = () => { es.close(); setTimeout(connectSSE, 2000); };
+
+  ws.onmessage = evt => {
+    try {
+      const msg = JSON.parse(evt.data);
+      _handleRealtimeEvent(msg);
+    } catch (_) {}
+  };
+
+  ws.onerror = () => {
+    try { ws.close(); } catch (_) {}
+  };
+
+  ws.onclose = () => {
+    app.wsConnected = false;
+    if (app.ws === ws) app.ws = null;
+    clearTimeout(app.wsRetryTimer);
+    app.wsRetryTimer = setTimeout(connectWebSocket, 2000);
+  };
 }
 
 // ─── Boot ────────────────────────────────────────────
@@ -1989,7 +2034,7 @@ function connectSSE() {
     // Load initial HW stats
     sendCommand('get_hardware_stats').then(d => { if (d?.ok && d.payload) updateHwStats(d.payload); });
   } catch (e) {
-    console.log('Initial state fetch failed, waiting for SSE');
+    console.log('Initial state fetch failed, waiting for WebSocket');
   }
 
   // Periodic HW stats refresh (every 30s)
@@ -1997,6 +2042,5 @@ function connectSSE() {
     sendCommand('get_hardware_stats').then(d => { if (d?.ok && d.payload) updateHwStats(d.payload); });
   }, 30000);
 
-  connectSSE();
-  startLiveFallbackPolling();
+  connectWebSocket();
 })();
