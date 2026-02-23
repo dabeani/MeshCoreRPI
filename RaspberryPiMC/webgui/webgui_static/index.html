@@ -304,44 +304,32 @@
       <section id="tab-logs" class="tab-pane" role="tabpanel">
         <div class="panel">
           <div class="panel-header">
-            <h2>Packet &amp; Event Log</h2>
-            <div class="inline-actions">
-              <div class="type-filter-bar compact">
-                <button class="type-btn active" data-log-filter="all">All</button>
-                <button class="type-btn" data-log-filter="pkt">RX/TX</button>
-                <button class="type-btn" data-log-filter="advert">Adverts</button>
-                <button class="type-btn companion-only" data-log-filter="msgs">Messages</button>
-                <button class="type-btn" data-log-filter="system">System</button>
-              </div>
-              <input id="log-filter" class="search-input" placeholder="Search…" />
-              <button id="btn-clear-log">Clear</button>
-            </div>
-          </div>
-          <div class="log-container">
-            <table class="log-table">
-              <thead><tr>
-                <th style="width:16px"></th>
-                <th style="width:90px">Time</th>
-                <th style="width:110px">Type</th>
-                <th style="width:160px">Node / Key</th>
-                <th>Details</th>
-              </tr></thead>
-              <tbody id="log-body"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="panel mt-14">
-          <div class="panel-header">
-            <h2>RxLog</h2>
+            <h2>Combined Packet &amp; Event Log</h2>
             <div class="inline-actions">
               <label><input id="rxlog-live-scroll" type="checkbox" /> Live Scroll</label>
-              <input id="rxlog-lines" class="search-input" type="number" min="10" max="5000" step="10" value="200" />
+              <input id="rxlog-lines" class="search-input" type="number" min="50" max="5000" step="50" value="400" />
+              <select id="log-route-filter">
+                <option value="all">Routing: All</option>
+                <option value="transport_flood">0x00 Transport Flood</option>
+                <option value="flood">0x01 Flood</option>
+                <option value="direct">0x02 Direct</option>
+                <option value="transport_direct">0x03 Transport Direct</option>
+              </select>
+              <select id="log-payload-filter">
+                <option value="all">Payload: All</option>
+                <option value="req">0x00 REQ</option>
+                <option value="resp">0x01 RESP</option>
+                <option value="txt">0x02 TXT</option>
+                <option value="ack">0x03 ACK</option>
+                <option value="advert">0x04 ADVERT</option>
+                <option value="path">0x08 PATH</option>
+              </select>
+              <input id="log-filter" class="search-input" placeholder="Search…" />
               <button id="btn-rxlog-refresh">Refresh</button>
               <button id="btn-rxlog-clear">Clear</button>
             </div>
           </div>
-          <pre id="rxlog-output" class="mono-box rxlog-box"></pre>
+          <pre id="combined-log-output" class="mono-box rxlog-box combined-log-box"></pre>
         </div>
       </section><!-- /logs -->
 

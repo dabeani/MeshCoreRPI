@@ -27,6 +27,7 @@ const app = {
   dmEverViewed: {},          // pubkey_prefix -> bool
   rxlogLiveScroll: false,    // whether RxLog live scroll is enabled
   rxlogInterval: null,       // interval ID for live scroll
+  latestRxLogText: '',       // cached raw packet log text
   headerStats: null,         // cached backend packet header stats
   headerStatsLastFetch: 0,   // unix ms of last fetch
   headerStatsFetching: false,
@@ -131,8 +132,7 @@ function switchTab(tabName) {
     renderContacts(app.snap, document.getElementById('contact-search')?.value || '');
   }
   if (tabName === 'logs' && app.snap) {
-    renderLog(app.snap.events || [], document.getElementById('log-filter')?.value || '');
-    refreshRxLog();
+    refreshCombinedLog();
   }
   if (tabName === 'messages' && app.snap) {
     app.unreadDms.clear();
@@ -149,26 +149,157 @@ function switchTab(tabName) {
   }
 }
 
-async function refreshRxLog() {
-  const out = document.getElementById('rxlog-output');
+async function refreshCombinedLog() {
+  const out = document.getElementById('combined-log-output');
   if (!out) return;
 
   const linesEl = document.getElementById('rxlog-lines');
-  let lines = parseInt(linesEl?.value || '200', 10);
-  if (!Number.isFinite(lines)) lines = 200;
-  lines = Math.max(10, Math.min(5000, lines));
+  let lines = parseInt(linesEl?.value || '400', 10);
+  if (!Number.isFinite(lines)) lines = 400;
+  lines = Math.max(50, Math.min(5000, lines));
   if (linesEl) linesEl.value = String(lines);
 
   out.textContent = 'Loading…';
   const d = await sendCommand('rxlog', { lines });
   if (d?.ok) {
-    renderRxLogText(d.payload?.text ?? '');
+    app.latestRxLogText = d.payload?.text ?? '';
+    renderCombinedLog();
     if (app.rxlogLiveScroll) {
       out.scrollTop = out.scrollHeight;
     }
   } else {
-    renderRxLogText(`Error: ${d?.error || 'rxlog failed'}`);
+    app.latestRxLogText = `Error: ${d?.error || 'rxlog failed'}`;
+    renderCombinedLog();
   }
+}
+
+function _packetTypeKeyFromCode(code) {
+  const n = Number(code);
+  if (n === 0x00) return 'req';
+  if (n === 0x01) return 'resp';
+  if (n === 0x02) return 'txt';
+  if (n === 0x03) return 'ack';
+  if (n === 0x04) return 'advert';
+  if (n === 0x08) return 'path';
+  return null;
+}
+
+function _routeKeyFromCodeOrChar(routeCode, routeChar, payloadKey) {
+  const rc = Number(routeCode);
+  if (Number.isFinite(rc) && rc >= 0 && rc <= 3) {
+    if (rc === 0) return 'transport_flood';
+    if (rc === 1) return 'flood';
+    if (rc === 2) return 'direct';
+    if (rc === 3) return 'transport_direct';
+  }
+  const transport = payloadKey === 'req' || payloadKey === 'resp' || payloadKey === 'path';
+  const c = String(routeChar || '').toUpperCase();
+  if (c === 'D') return transport ? 'transport_direct' : 'direct';
+  if (c === 'F') return transport ? 'transport_flood' : 'flood';
+  return null;
+}
+
+function _routeLabel(routeKey) {
+  return {
+    transport_flood: '0x00 Transport Flood',
+    flood: '0x01 Flood',
+    direct: '0x02 Direct',
+    transport_direct: '0x03 Transport Direct',
+  }[routeKey] || '–';
+}
+
+function _payloadLabel(payloadKey) {
+  return {
+    req: '0x00 REQ',
+    resp: '0x01 RESP',
+    txt: '0x02 TXT',
+    ack: '0x03 ACK',
+    advert: '0x04 ADVERT',
+    path: '0x08 PATH',
+  }[payloadKey] || '–';
+}
+
+function _parsePacketLogLines(text) {
+  const entries = [];
+  const rxRe = /RX,.*\(type=(\d+),\s*route=([A-Za-z])(?:,\s*route_code=(\d+))?/;
+  const lines = String(text || '').split('\n');
+  for (const line of lines) {
+    if (!line) continue;
+    const m = line.match(rxRe);
+    const payloadKey = m ? _packetTypeKeyFromCode(m[1]) : null;
+    const routeKey = m ? _routeKeyFromCodeOrChar(m[3], m[2], payloadKey) : null;
+    const cls = line.includes('TX FAIL') || /ERR|FAIL|DROP|CRC/i.test(line)
+      ? 'err'
+      : (line.includes(': TX') ? 'tx' : (line.includes(': RX') ? 'rx' : ''));
+    entries.push({
+      kind: 'packet',
+      text: line,
+      payloadKey,
+      routeKey,
+      cls,
+    });
+  }
+  return entries;
+}
+
+function _eventLine(e) {
+  const p = e?.payload || {};
+  if (e.type === 'connected') return `Connected to ${p.host || '?'}:${p.port || '?'}`;
+  if (e.type === 'error') return `Error: ${p.message || ''}`;
+  if (e.type === 'config_set') return `Config ${p.key}=${p.value}`;
+  if (e.type === 'reboot') return `Reboot ${p.reply || ''}`;
+  if (e.type === 'chan_msg') return `[${p.channel || 'ch'}] ${p.text || ''}`;
+  if (e.type === 'contact_msg') return `${p.sender || p.pubkey_prefix || '?'}: ${p.text || ''}`;
+  return JSON.stringify(p);
+}
+
+function _eventClass(type) {
+  if (type === 'error') return 'err';
+  if (type === 'connected' || type === 'self_info') return 'cfg';
+  if (type === 'pkt_tx') return 'tx';
+  if (type === 'pkt_rx' || type === 'rx_advert') return 'rx';
+  return 'evt';
+}
+
+function renderCombinedLog() {
+  const out = document.getElementById('combined-log-output');
+  if (!out) return;
+
+  const search = (document.getElementById('log-filter')?.value || '').trim().toLowerCase();
+  const routeFilter = document.getElementById('log-route-filter')?.value || 'all';
+  const payloadFilter = document.getElementById('log-payload-filter')?.value || 'all';
+
+  const packetEntries = _parsePacketLogLines(app.latestRxLogText);
+  const eventEntries = (app.snap?.events || []).slice(-400).map(e => ({
+    kind: 'event',
+    text: `[EVT:${e.type}] ${_eventLine(e)}`,
+    payloadKey: null,
+    routeKey: null,
+    cls: _eventClass(e.type),
+  }));
+
+  let entries = [...packetEntries, ...eventEntries];
+  entries = entries.filter(en => {
+    if (routeFilter !== 'all' && en.routeKey !== routeFilter) return false;
+    if (payloadFilter !== 'all' && en.payloadKey !== payloadFilter) return false;
+    if (search && !en.text.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  const maxVisible = 1200;
+  if (entries.length > maxVisible) entries = entries.slice(entries.length - maxVisible);
+
+  if (!entries.length) {
+    out.innerHTML = '<div class="rxlog-line">No matching log entries.</div>';
+    return;
+  }
+
+  out.innerHTML = entries.map(en => {
+    const tagRoute = en.routeKey ? `<span class="combined-tag">${_esc(_routeLabel(en.routeKey))}</span>` : '';
+    const tagPayload = en.payloadKey ? `<span class="combined-tag">${_esc(_payloadLabel(en.payloadKey))}</span>` : '';
+    const cls = en.cls ? `rxlog-line ${en.cls}` : 'rxlog-line';
+    return `<div class="${cls}">${tagRoute}${tagPayload}${_esc(en.text)}</div>`;
+  }).join('');
 }
 
 function rxlogLineType(line) {
@@ -193,7 +324,7 @@ function rxlogLineType(line) {
 }
 
 function renderRxLogText(text) {
-  const out = document.getElementById('rxlog-output');
+  const out = document.getElementById('combined-log-output');
   if (!out) return;
   const lines = String(text ?? '').split('\n');
   out.innerHTML = lines.map(line => {
@@ -745,6 +876,13 @@ function renderEvents(events) {
 
 // ─── Log Table ───────────────────────────────────────
 function renderLog(events, filter = '') {
+  void events;
+  void filter;
+  renderCombinedLog();
+}
+
+// legacy function body intentionally removed
+function _renderLogLegacyNoop() {
   const tbody = document.getElementById('log-body');
   if (!tbody) return;
 
@@ -1543,27 +1681,18 @@ function wireUi() {
   );
 
   // Log filter + log type filter buttons
-  document.getElementById('log-filter')?.addEventListener('input', e => {
-    renderLog(app.snap?.events || [], e.target.value);
-  });
-  document.querySelectorAll('.type-btn[data-log-filter]').forEach(btn =>
-    btn.addEventListener('click', () => {
-      app.logTypeFilter = btn.dataset.logFilter;
-      document.querySelectorAll('.type-btn[data-log-filter]').forEach(b => b.classList.toggle('active', b === btn));
-      renderLog(app.snap?.events || [], document.getElementById('log-filter')?.value || '');
-    })
-  );
-  document.getElementById('btn-clear-log')?.addEventListener('click', () => {
-    if (app.snap) app.snap.events = [];
-    renderLog([], '');
-  });
+  document.getElementById('log-filter')?.addEventListener('input', () => renderCombinedLog());
+  document.getElementById('log-route-filter')?.addEventListener('change', () => renderCombinedLog());
+  document.getElementById('log-payload-filter')?.addEventListener('change', () => renderCombinedLog());
 
-  document.getElementById('btn-rxlog-refresh')?.addEventListener('click', refreshRxLog);
+  document.getElementById('btn-rxlog-refresh')?.addEventListener('click', refreshCombinedLog);
 
   document.getElementById('btn-rxlog-clear')?.addEventListener('click', async () => {
     const d = await sendCommand('clear_rxlog');
     if (d?.ok) {
-      document.getElementById('rxlog-output').textContent = '';
+      app.latestRxLogText = '';
+      if (app.snap) app.snap.events = [];
+      renderCombinedLog();
     } else {
       alert(`Clear failed: ${d?.error || 'unknown error'}`);
     }
@@ -1572,7 +1701,7 @@ function wireUi() {
   document.getElementById('rxlog-live-scroll')?.addEventListener('change', e => {
     app.rxlogLiveScroll = e.target.checked;
     if (app.rxlogLiveScroll) {
-      app.rxlogInterval = setInterval(refreshRxLog, 2000); // refresh every 2 seconds
+      app.rxlogInterval = setInterval(refreshCombinedLog, 2000); // refresh every 2 seconds
     } else {
       if (app.rxlogInterval) {
         clearInterval(app.rxlogInterval);
