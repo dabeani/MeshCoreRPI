@@ -332,6 +332,17 @@
             </table>
           </div>
         </div>
+
+        <div class="panel mt-14">
+          <div class="panel-header">
+            <h2>RxLog</h2>
+            <div class="inline-actions">
+              <input id="rxlog-lines" class="search-input" type="number" min="10" max="5000" step="10" value="200" />
+              <button id="btn-rxlog-refresh">Refresh</button>
+            </div>
+          </div>
+          <pre id="rxlog-output" class="mono-box rxlog-box"></pre>
+        </div>
       </section><!-- /logs -->
 
       <!-- ════════ MESSAGES TAB (companion-only) ════════ -->

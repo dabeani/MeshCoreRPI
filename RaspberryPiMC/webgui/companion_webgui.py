@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import argparse
 import errno
 import json
@@ -138,6 +140,51 @@ def _require_cli_value(value: Any) -> str:
     if "\n" in text or "\r" in text:
         raise ValueError("value must be a single line")
     return text
+
+
+def _packet_log_candidate_paths() -> list[Path]:
+    roots: list[Path] = []
+    env_root = os.getenv("MESHCORE_DATA_DIR", "").strip()
+    if env_root:
+        roots.append(Path(env_root))
+    roots.append(Path("/var/lib/raspberrypimc/userdata"))
+    roots.append(Path.cwd() / "RaspberryPiMC" / "userdata")
+    roots.append(Path(__file__).resolve().parent.parent / "userdata")
+    paths: list[Path] = []
+    for root in roots:
+        paths.append(root / "packet_log")
+    return paths
+
+
+def _read_packet_log_tail(lines: int, max_bytes: int = 64 * 1024) -> str:
+    lines = max(10, min(5000, int(lines)))
+    for p in _packet_log_candidate_paths():
+        try:
+            if not p.exists() or not p.is_file():
+                continue
+            size = p.stat().st_size
+            if size <= 0:
+                return "-empty-"
+            start = max(0, size - max_bytes)
+            with p.open("rb") as f:
+                if start > 0:
+                    f.seek(start)
+                data = f.read()
+            if start > 0:
+                nl = data.find(b"\n")
+                if nl >= 0:
+                    data = data[nl + 1 :]
+            try:
+                text = data.decode("utf-8", errors="replace")
+            except Exception:
+                text = data.decode("latin-1", errors="replace")
+            if lines <= 0:
+                return text
+            parts = text.splitlines()
+            return "\n".join(parts[-lines:])
+        except OSError:
+            continue
+    return "-none-"
 
 
 @dataclass
@@ -342,8 +389,9 @@ class CompanionClient:
             return False
 
     def _bootstrap(self) -> None:
-        app_name = APP_NAME.ljust(9, b"\x00")
-        self.send_cmd(bytes([CMD_APP_START, 0x03]) + app_name)
+        # CMD_APP_START expects 7 reserved bytes, then app name starting at offset 8.
+        app_name = APP_NAME.ljust(16, b"\x00")
+        self.send_cmd(bytes([CMD_APP_START]) + (b"\x00" * 7) + app_name)
         self.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
         self.send_cmd(bytes([CMD_GET_BATT_AND_STORAGE]))
         self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_CORE]))
@@ -828,60 +876,21 @@ class RepeaterClient:
             except ValueError:
                 snr_q = 0
             snr_db = round(snr_q / 4.0, 2)
-
-            # Optional extended format: key:seen_ago:snr_q4:name:lat_i:lon_i
-            name: str | None = None
-            lat_v: float | None = None
-            lon_v: float | None = None
-            if len(parts) >= 6:
-                name = parts[3].strip() or None
-                try:
-                    lat_i = int(parts[4])
-                    lon_i = int(parts[5])
-                    if lat_i != 0 or lon_i != 0:
-                        lat_v = lat_i / 1_000_000.0
-                        lon_v = lon_i / 1_000_000.0
-                except ValueError:
-                    pass
-
-            # If the repeater firmware supports it, fetch per-neighbor metadata.
-            # This keeps the base `neighbors` output compatible and still allows name/location.
-            if name is None and lat_v is None and lon_v is None:
-                try:
-                    info = self.send_cli_command(f"neighbor.get {key}")
-                    if info and info != "-none-" and not info.lower().startswith("err"):
-                        ip = [s.strip() for s in info.split(":")]
-                        if len(ip) >= 3:
-                            name = ip[0] or None
-                            try:
-                                lat_i = int(ip[1])
-                                lon_i = int(ip[2])
-                                if lat_i != 0 or lon_i != 0:
-                                    lat_v = lat_i / 1_000_000.0
-                                    lon_v = lon_i / 1_000_000.0
-                            except ValueError:
-                                pass
-                except Exception:
-                    pass
             contact = Contact(
                 pubkey=key,
                 kind=2,           # ADV_TYPE_REPEATER — CLI neighbors are always direct repeater peers
                 flags=0,
                 out_path_len=0,   # zero-hop = direct neighbor
-                name=name or f"Neighbor {key[:8]}",
+                name=f"Neighbor {key[:8]}",
                 last_advert_timestamp=max(0, now - max(0, seen_ago)),
-                lat=lat_v,
-                lon=lon_v,
+                lat=None,
+                lon=None,
                 lastmod=now,
                 snr=snr_db,
             )
             contacts.append(contact)
             if key not in current_keys:
-                payload: dict[str, Any] = {"pubkey": key, "name": contact.name, "snr": snr_db}
-                if contact.lat is not None and contact.lon is not None:
-                    payload["lat"] = round(contact.lat, 6)
-                    payload["lon"] = round(contact.lon, 6)
-                self.state.add_event("neighbor_new", payload)
+                self.state.add_event("neighbor_new", {"pubkey": key, "name": contact.name, "snr": snr_db})
         self.state.replace_contacts(contacts)
 
     def _update_identity(self) -> None:
@@ -1139,6 +1148,14 @@ class App:
             self.client.send_cmd(bytes([CMD_SET_ADVERT_LATLON]) + struct.pack("<ii", lat_i, lon_i))
             return {"lat": lat, "lon": lon}
 
+        if name == "rxlog":
+            try:
+                lines = int(args.get("lines", 200))
+            except (TypeError, ValueError):
+                lines = 200
+            lines = max(10, min(5000, lines))
+            return {"lines": lines, "text": _read_packet_log_tail(lines)}
+
         if name == "public_msg":
             text = str(args.get("text", "")).encode("utf-8")[:180]
             channel = int(args.get("channel", 0)) & 0xFF
@@ -1316,6 +1333,15 @@ class App:
         if name == "get_radio":
             reply = self.client.send_cli_command("get radio")
             return {"reply": reply}
+
+        if name == "rxlog":
+            try:
+                lines = int(args.get("lines", 200))
+            except (TypeError, ValueError):
+                lines = 200
+            lines = max(10, min(5000, lines))
+            text = self.client.send_cli_command(f"rxlog {lines}")
+            return {"lines": lines, "text": text}
 
         if name == "config_schema":
             return {

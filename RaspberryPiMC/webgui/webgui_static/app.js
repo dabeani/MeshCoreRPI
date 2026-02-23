@@ -124,6 +124,7 @@ function switchTab(tabName) {
   }
   if (tabName === 'logs' && app.snap) {
     renderLog(app.snap.events || [], document.getElementById('log-filter')?.value || '');
+    refreshRxLog();
   }
   if (tabName === 'messages' && app.snap) {
     app.unreadDms.clear();
@@ -138,6 +139,25 @@ function switchTab(tabName) {
   if (tabName === 'config' && app.snap?.role === 'repeater' && !app.configLoaded) {
     loadRepeaterConfig();
     refreshRegions();
+  }
+}
+
+async function refreshRxLog() {
+  const out = document.getElementById('rxlog-output');
+  if (!out) return;
+
+  const linesEl = document.getElementById('rxlog-lines');
+  let lines = parseInt(linesEl?.value || '200', 10);
+  if (!Number.isFinite(lines)) lines = 200;
+  lines = Math.max(10, Math.min(5000, lines));
+  if (linesEl) linesEl.value = String(lines);
+
+  out.textContent = 'Loading…';
+  const d = await sendCommand('rxlog', { lines });
+  if (d?.ok) {
+    out.textContent = d.payload?.text ?? '';
+  } else {
+    out.textContent = `Error: ${d?.error || 'rxlog failed'}`;
   }
 }
 
@@ -1397,6 +1417,8 @@ function wireUi() {
     if (app.snap) app.snap.events = [];
     renderLog([], '');
   });
+
+  document.getElementById('btn-rxlog-refresh')?.addEventListener('click', refreshRxLog);
 
   // Config: delegated set-button click from grouped param display
   document.getElementById('config-groups')?.addEventListener('click', e => {
