@@ -54,13 +54,14 @@ RESP_CODE_STATS = 24
 
 PUSH_CODE_ADVERT = 0x80
 PUSH_CODE_MSG_WAITING = 0x83
+PUSH_CODE_LOG_RX_DATA = 0x88
 PUSH_CODE_NEW_ADVERT = 0x8A
 
 APP_NAME = b"mc-webgui"
 _FLOAT_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
 _CONFIG_KEY_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 _REGION_NAME_RE = re.compile(r"^[#*a-zA-Z0-9._-]+$")
-_RX_HEADER_RE = re.compile(r"RX,.*\(type=(\d+),\s*route=([A-Za-z])")
+_RX_HEADER_RE = re.compile(r"RX,.*\(type=(\d+),\s*route=([A-Za-z])(?:,\s*route_code=(\d+))?")
 
 REPEATER_CONFIG_KEYS: dict[str, list[str]] = {
     "radio": [
@@ -188,7 +189,22 @@ def _read_packet_log_tail(lines: int, max_bytes: int = 64 * 1024) -> str:
     return "-none-"
 
 
-def _compute_packet_header_breakdown(max_bytes: int = 4 * 1024 * 1024) -> dict[str, Any]:
+def _append_packet_log_line(line: str) -> None:
+    text = str(line).strip()
+    if not text:
+        return
+    for p in _packet_log_candidate_paths():
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with p.open("a", encoding="utf-8", errors="replace") as f:
+                f.write(text)
+                f.write("\n")
+            return
+        except OSError:
+            continue
+
+
+def _compute_packet_header_breakdown_from_text(text: str, source: str = "") -> dict[str, Any]:
     transport_payload_types = {0x00, 0x01, 0x08}  # REQ, RESP, PATH
     routing = {
         "transport_flood": 0,
@@ -214,18 +230,64 @@ def _compute_packet_header_breakdown(max_bytes: int = 4 * 1024 * 1024) -> dict[s
     }
     total_rx = 0
 
+    for line in str(text or "").splitlines():
+        m = _RX_HEADER_RE.search(line)
+        if not m:
+            continue
+        try:
+            ptype = int(m.group(1))
+        except ValueError:
+            continue
+        route_ch = m.group(2).upper()
+        route_code_raw = m.group(3)
+        route_code: int | None = None
+        if route_code_raw is not None:
+            try:
+                route_code = int(route_code_raw)
+            except ValueError:
+                route_code = None
+
+        total_rx += 1
+
+        payload_key = code_to_payload.get(ptype)
+        if payload_key:
+            payload[payload_key] += 1
+
+        if route_code is not None and 0 <= route_code <= 3:
+            if route_code == 0:
+                routing["transport_flood"] += 1
+            elif route_code == 1:
+                routing["flood"] += 1
+            elif route_code == 2:
+                routing["direct"] += 1
+            elif route_code == 3:
+                routing["transport_direct"] += 1
+        else:
+            is_transport = ptype in transport_payload_types
+            if route_ch == "F":
+                routing["transport_flood" if is_transport else "flood"] += 1
+            elif route_ch == "D":
+                routing["transport_direct" if is_transport else "direct"] += 1
+
+    return {
+        "routing": routing,
+        "payload": payload,
+        "total_rx": total_rx,
+        "source": source,
+    }
+
+
+def _compute_packet_header_breakdown(max_bytes: int = 4 * 1024 * 1024) -> dict[str, Any]:
+    empty = _compute_packet_header_breakdown_from_text("", source="")
+
     for p in _packet_log_candidate_paths():
         try:
             if not p.exists() or not p.is_file():
                 continue
             size = p.stat().st_size
             if size <= 0:
-                return {
-                    "routing": routing,
-                    "payload": payload,
-                    "total_rx": 0,
-                    "source": str(p),
-                }
+                empty["source"] = str(p)
+                return empty
 
             start = max(0, size - max_bytes)
             with p.open("rb") as f:
@@ -239,41 +301,14 @@ def _compute_packet_header_breakdown(max_bytes: int = 4 * 1024 * 1024) -> dict[s
                     data = data[nl + 1 :]
 
             text = data.decode("utf-8", errors="replace")
-            for line in text.splitlines():
-                m = _RX_HEADER_RE.search(line)
-                if not m:
-                    continue
-                try:
-                    ptype = int(m.group(1))
-                except ValueError:
-                    continue
-                route_ch = m.group(2).upper()
-
-                total_rx += 1
-
-                payload_key = code_to_payload.get(ptype)
-                if payload_key:
-                    payload[payload_key] += 1
-
-                is_transport = ptype in transport_payload_types
-                if route_ch == "F":
-                    routing["transport_flood" if is_transport else "flood"] += 1
-                elif route_ch == "D":
-                    routing["transport_direct" if is_transport else "direct"] += 1
-
-            return {
-                "routing": routing,
-                "payload": payload,
-                "total_rx": total_rx,
-                "source": str(p),
-            }
+            return _compute_packet_header_breakdown_from_text(text, source=str(p))
         except OSError:
             continue
 
     return {
-        "routing": routing,
-        "payload": payload,
-        "total_rx": 0,
+        "routing": empty["routing"],
+        "payload": empty["payload"],
+        "total_rx": empty["total_rx"],
         "source": "",
     }
 
@@ -778,6 +813,20 @@ class CompanionClient:
             pass  # No more queued messages — nothing to do
         elif payload_type == PUSH_CODE_ADVERT and len(payload) >= 33:
             self.state.touch_contact_advert(payload[1:33].hex())
+        elif payload_type == PUSH_CODE_LOG_RX_DATA and len(payload) >= 4:
+            snr = (payload[1] if payload[1] < 128 else payload[1] - 256) / 4.0
+            rssi = payload[2] if payload[2] < 128 else payload[2] - 256
+            raw = payload[3:]
+            if raw:
+                header = raw[0]
+                route_code = header & 0x03
+                payload_type_code = (header >> 2) & 0x0F
+                route_char = "D" if route_code in (2, 3) else "F"
+                _append_packet_log_line(
+                    f"{time.strftime('%H:%M:%S')}: RX, len={len(raw)} "
+                    f"(type={payload_type_code}, route={route_char}, route_code={route_code}, payload_len=0) "
+                    f"SNR={snr:.2f} RSSI={rssi}"
+                )
         elif payload_type == PUSH_CODE_MSG_WAITING:
             self.send_cmd(bytes([CMD_SYNC_NEXT_MESSAGE]))
         self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
@@ -867,6 +916,7 @@ class RepeaterClient:
         self.stop_event = threading.Event()
         self._prev_rx: int = 0
         self._prev_tx: int = 0
+        self._logging_started = False
 
     def _close(self) -> None:
         if self.sock is not None:
@@ -888,6 +938,7 @@ class RepeaterClient:
             self.state.set_connected(True)
             self.state.add_event("connected", {"host": self.host, "port": self.port})
             self.bus.publish({"type": "connected", "ts": int(time.time())})
+            self._logging_started = False
             return True
         except OSError:
             self._close()
@@ -929,6 +980,15 @@ class RepeaterClient:
             except (OSError, ConnectionError, socket.timeout) as ex:
                 self._close()
                 raise ConnectionError(str(ex)) from ex
+
+    def _ensure_logging_started(self) -> None:
+        if self._logging_started:
+            return
+        try:
+            self.send_cli_command("log start")
+            self._logging_started = True
+        except Exception:
+            pass
 
     def _update_core(self, raw: str) -> None:
         data = _parse_json_text(raw)
@@ -1004,6 +1064,7 @@ class RepeaterClient:
         self.state.self_info = current
 
     def refresh(self, full: bool = False) -> None:
+        self._ensure_logging_started()
         self._update_core(self.send_cli_command("stats-core"))
         self._update_radio(self.send_cli_command("stats-radio"))
         self._update_packets(self.send_cli_command("stats-packets"))
@@ -1258,7 +1319,8 @@ class App:
             return {"cleared": True}
 
         if name == "header_stats":
-            return _compute_packet_header_breakdown()
+            text = self.client.send_cli_command("rxlog 5000")
+            return _compute_packet_header_breakdown_from_text(text, source="repeater:rxlog")
 
         if name == "public_msg":
             text = str(args.get("text", "")).encode("utf-8")[:180]
