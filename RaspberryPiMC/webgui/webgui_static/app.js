@@ -35,7 +35,11 @@ const app = {
   ws: null,
   wsConnected: false,
   wsRetryTimer: null,
-  chSidebarWidth: 220,
+  wsRxCount: 0,
+  wsTxCount: 0,
+  wsLastMsgAt: 0,
+  wsLatencyTs: [],
+  wsLatencyMs: [],
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
@@ -105,6 +109,8 @@ function contactKindStr(kind, role) {
 
 // ─── API ─────────────────────────────────────────────
 async function sendCommand(name, args = {}) {
+  app.wsTxCount += 1;
+  updateWsStatusPanel();
   try {
     const resp = await fetch('/api/command', {
       method: 'POST',
@@ -116,6 +122,51 @@ async function sendCommand(name, args = {}) {
     console.error('sendCommand error:', name, e);
     return { ok: false, error: String(e) };
   }
+}
+
+function _recordWsLatencyFromEvent(msg) {
+  const ts = Number(msg?.ts);
+  if (!Number.isFinite(ts) || ts <= 0) return;
+  const nowMs = Date.now();
+  const latencyMs = Math.max(0, nowMs - (ts * 1000));
+  const nowSec = Math.floor(nowMs / 1000);
+  app.wsLatencyTs.push(nowSec);
+  app.wsLatencyMs.push(Math.round(latencyMs));
+  const maxPoints = 180;
+  if (app.wsLatencyTs.length > maxPoints) {
+    app.wsLatencyTs = app.wsLatencyTs.slice(app.wsLatencyTs.length - maxPoints);
+    app.wsLatencyMs = app.wsLatencyMs.slice(app.wsLatencyMs.length - maxPoints);
+  }
+}
+
+function updateWsStatusPanel() {
+  const stateEl = document.getElementById('ws-state');
+  const rxEl = document.getElementById('ws-rx');
+  const txEl = document.getElementById('ws-tx');
+  const latEl = document.getElementById('ws-latency-now');
+  const lastEl = document.getElementById('ws-last-msg');
+  if (!stateEl || !rxEl || !txEl || !latEl || !lastEl) return;
+
+  stateEl.textContent = app.wsConnected ? 'connected' : 'offline';
+  stateEl.className = `badge ${app.wsConnected ? 'ok' : 'err'}`;
+
+  rxEl.textContent = `RX events: ${app.wsRxCount}`;
+  txEl.textContent = `TX commands: ${app.wsTxCount}`;
+
+  const latestLatency = app.wsLatencyMs.length ? app.wsLatencyMs[app.wsLatencyMs.length - 1] : null;
+  latEl.textContent = latestLatency == null ? 'Latency: –' : `Latency: ${latestLatency} ms`;
+
+  if (app.wsLastMsgAt > 0) {
+    const ageMs = Math.max(0, Date.now() - app.wsLastMsgAt);
+    const ageSec = Math.floor(ageMs / 1000);
+    lastEl.textContent = `Last message: ${ageSec}s ago`;
+  } else {
+    lastEl.textContent = 'Last message: –';
+  }
+
+  drawChart(document.getElementById('ws-latency-chart'), app.wsLatencyTs, [
+    { label: 'WS Latency (ms)', data: app.wsLatencyMs, color: '#58a6ff', fill: true },
+  ]);
 }
 
 // ─── Tab Switching ───────────────────────────────────
@@ -1559,6 +1610,7 @@ function renderAll(snap) {
 
   // System charts (dashboard side panel — CPU/RAM over time)
   renderSystemCharts(snap);
+  updateWsStatusPanel();
 
   // Companion device info panel (config tab)
   const infoEl = document.getElementById('companion-device-info');
@@ -1619,7 +1671,7 @@ function renderAll(snap) {
 
 // ─── Wire UI ─────────────────────────────────────────
 function wireUi() {
-  initChannelSidebarResize();
+  initPaneResizers();
 
   // Tab buttons
   document.querySelectorAll('.tab-btn').forEach(btn =>
@@ -1935,6 +1987,7 @@ function wireUi() {
 
 function _handleRealtimeEvent(msg) {
   if (!msg || typeof msg !== 'object') return;
+  _recordWsLatencyFromEvent(msg);
   if (msg.type === 'state' && msg.payload) {
     renderAll(msg.payload);
     return;
@@ -1951,34 +2004,56 @@ function _handleRealtimeEvent(msg) {
   }
 }
 
-function initChannelSidebarResize() {
-  const saved = Number(window.localStorage.getItem('mc-ch-sidebar-w'));
-  if (Number.isFinite(saved)) {
-    app.chSidebarWidth = Math.max(180, Math.min(520, saved));
-  }
-  document.documentElement.style.setProperty('--ch-sidebar-w', `${app.chSidebarWidth}px`);
+function initPaneResizers() {
+  const resizers = document.querySelectorAll('.pane-resizer');
+  if (!resizers.length) return;
 
-  const resizers = document.querySelectorAll('.ch-resizer');
+  const initialized = new Set();
+  resizers.forEach(resizer => {
+    const cssVar = resizer.dataset.resizeVar;
+    const key = resizer.dataset.resizeKey;
+    const min = Number(resizer.dataset.resizeMin || '180');
+    const max = Number(resizer.dataset.resizeMax || '900');
+    if (!cssVar || !key || initialized.has(key)) return;
+    const saved = Number(window.localStorage.getItem(key));
+    if (Number.isFinite(saved)) {
+      const width = Math.max(min, Math.min(max, saved));
+      document.documentElement.style.setProperty(cssVar, `${width}px`);
+    }
+    initialized.add(key);
+  });
+
   resizers.forEach(resizer => {
     resizer.addEventListener('pointerdown', ev => {
       if (window.matchMedia('(max-width: 900px)').matches) return;
+      const cssVar = resizer.dataset.resizeVar;
+      const key = resizer.dataset.resizeKey;
+      const anchor = (resizer.dataset.resizeAnchor || 'left').toLowerCase();
+      const min = Number(resizer.dataset.resizeMin || '180');
+      const max = Number(resizer.dataset.resizeMax || '900');
+      if (!cssVar || !key) return;
+
       ev.preventDefault();
       resizer.classList.add('is-dragging');
-      const layout = resizer.closest('.ch-layout');
+      const layout = resizer.parentElement;
       if (!layout) return;
-
       const layoutRect = layout.getBoundingClientRect();
 
       const onMove = moveEv => {
-        const rel = moveEv.clientX - layoutRect.left;
-        const width = Math.max(180, Math.min(520, Math.round(rel - 11)));
-        app.chSidebarWidth = width;
-        document.documentElement.style.setProperty('--ch-sidebar-w', `${width}px`);
+        const raw = anchor === 'right'
+          ? (layoutRect.right - moveEv.clientX - 11)
+          : (moveEv.clientX - layoutRect.left - 11);
+        const width = Math.max(min, Math.min(max, Math.round(raw)));
+        document.documentElement.style.setProperty(cssVar, `${width}px`);
       };
 
       const onUp = () => {
         resizer.classList.remove('is-dragging');
-        window.localStorage.setItem('mc-ch-sidebar-w', String(app.chSidebarWidth));
+        const value = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
+        const px = Number(String(value).replace('px', '').trim());
+        if (Number.isFinite(px)) {
+          window.localStorage.setItem(key, String(px));
+        }
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
       };
@@ -1999,13 +2074,17 @@ function connectWebSocket() {
   ws.onopen = () => {
     app.wsConnected = true;
     clearTimeout(app.wsRetryTimer);
+    updateWsStatusPanel();
   };
 
   ws.onmessage = evt => {
+    app.wsRxCount += 1;
+    app.wsLastMsgAt = Date.now();
     try {
       const msg = JSON.parse(evt.data);
       _handleRealtimeEvent(msg);
     } catch (_) {}
+    updateWsStatusPanel();
   };
 
   ws.onerror = () => {
@@ -2017,12 +2096,14 @@ function connectWebSocket() {
     if (app.ws === ws) app.ws = null;
     clearTimeout(app.wsRetryTimer);
     app.wsRetryTimer = setTimeout(connectWebSocket, 2000);
+    updateWsStatusPanel();
   };
 }
 
 // ─── Boot ────────────────────────────────────────────
 (async function init() {
   wireUi();
+  updateWsStatusPanel();
 
   // Initial state via REST fallback
   try {
@@ -2038,6 +2119,8 @@ function connectWebSocket() {
   setInterval(() => {
     sendCommand('get_hardware_stats').then(d => { if (d?.ok && d.payload) updateHwStats(d.payload); });
   }, 30000);
+
+  setInterval(updateWsStatusPanel, 1000);
 
   connectWebSocket();
 })();

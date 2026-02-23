@@ -72,6 +72,8 @@
             </div>
           </div><!-- /dash-left-col -->
 
+          <div class="pane-resizer" data-resize-var="--dash-side-w" data-resize-key="mc-dash-side-w" data-resize-min="240" data-resize-max="520" data-resize-anchor="right" title="Drag to resize"></div>
+
           <!-- Side panel (right) -->
           <div class="dash-side">
             <!-- System / hardware stats + graphs -->
@@ -83,6 +85,21 @@
               <div class="stat-mini-grid">
                 <div class="stat-mini"><span class="lbl">Disk</span><span id="hw-disk" class="val">–</span></div>
                 <div class="stat-mini"><span class="lbl">Temp</span><span id="hw-temp" class="val">–</span></div>
+              </div>
+              <div class="ws-status-wrap">
+                <div class="ws-status-top">
+                  <span class="lbl">WebSocket</span>
+                  <span id="ws-state" class="badge err">offline</span>
+                </div>
+                <div class="ws-status-meta">
+                  <span id="ws-rx">RX events: 0</span>
+                  <span id="ws-tx">TX commands: 0</span>
+                </div>
+                <div class="ws-status-meta">
+                  <span id="ws-latency-now">Latency: –</span>
+                  <span id="ws-last-msg">Last message: –</span>
+                </div>
+                <canvas id="ws-latency-chart" class="sys-chart" title="WebSocket event latency"></canvas>
               </div>
               <canvas id="sys-chart-cpu" class="sys-chart" title="CPU usage over time"></canvas>
               <canvas id="sys-chart-mem" class="sys-chart" title="RAM usage over time"></canvas>
@@ -191,6 +208,8 @@
               <div id="companion-cfg-output" class="mono-box mt-8"></div>
             </div>
 
+            <div class="pane-resizer" data-resize-var="--cfg-left-w" data-resize-key="mc-cfg-left-w" data-resize-min="320" data-resize-max="900" data-resize-anchor="left" title="Drag to resize"></div>
+
             <!-- Right: Device info -->
             <div class="panel cfg-right">
               <div class="panel-header"><h2>Device Info</h2></div>
@@ -216,6 +235,8 @@
               <div id="config-groups"></div>
               <div id="config-output" class="mono-box mt-8"></div>
             </div>
+
+            <div class="pane-resizer" data-resize-var="--cfg-left-w" data-resize-key="mc-cfg-left-w" data-resize-min="320" data-resize-max="900" data-resize-anchor="left" title="Drag to resize"></div>
 
             <!-- Region routing panel (interactive tree manager) -->
             <div class="panel cfg-right" id="region-panel">
@@ -346,7 +367,7 @@
             <ul id="dm-contact-list" class="ch-list"></ul>
           </div>
 
-          <div class="ch-resizer" data-resize-target="dm" title="Drag to resize"></div>
+          <div class="pane-resizer" data-resize-var="--ch-sidebar-w" data-resize-key="mc-ch-sidebar-w" data-resize-min="180" data-resize-max="520" data-resize-anchor="left" title="Drag to resize"></div>
 
           <!-- Chat area -->
           <div class="ch-chat panel">
@@ -377,7 +398,7 @@
             <ul id="ch-list" class="ch-list"></ul>
           </div>
 
-          <div class="ch-resizer" data-resize-target="ch" title="Drag to resize"></div>
+          <div class="pane-resizer" data-resize-var="--ch-sidebar-w" data-resize-key="mc-ch-sidebar-w" data-resize-min="180" data-resize-max="520" data-resize-anchor="left" title="Drag to resize"></div>
 
           <!-- Chat area -->
           <div class="ch-chat panel">
