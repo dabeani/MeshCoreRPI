@@ -30,6 +30,9 @@ const app = {
   headerStats: null,         // cached backend packet header stats
   headerStatsLastFetch: 0,   // unix ms of last fetch
   headerStatsFetching: false,
+  lastStateRenderAt: 0,      // unix ms of last renderAll() update
+  lastRxLogFetchAt: 0,       // unix ms of last refreshCombinedLog() fetch
+  liveFallbackInterval: null,
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
@@ -91,9 +94,9 @@ function setOutput(id, text) {
 }
 
 function contactKindStr(kind, role) {
-  if (role === 'repeater') return 'Neighbor';
   // ADV_TYPE_NONE=0, ADV_TYPE_CHAT=1 (client), ADV_TYPE_REPEATER=2, ADV_TYPE_ROOM=3, ADV_TYPE_SENSOR=4
   const types = ['Unknown', 'Client', 'Repeater', 'Room Server', 'Sensor'];
+  if (role === 'repeater' && (!Number.isFinite(Number(kind)) || Number(kind) === 0)) return 'Neighbor';
   return types[kind] ?? `Type ${kind}`;
 }
 
@@ -160,6 +163,7 @@ async function refreshCombinedLog() {
 
   out.textContent = 'Loading…';
   const d = await sendCommand('rxlog', { lines });
+  app.lastRxLogFetchAt = Date.now();
   if (d?.ok) {
     app.latestRxLogText = d.payload?.text ?? '';
     renderCombinedLog();
@@ -336,9 +340,14 @@ function renderRxLogText(text) {
 
 function _renderFixedBars(container, labels, counts, classes) {
   if (!container) return;
-  const values = Object.keys(labels).map(k => counts[k] || 0);
+  const keys = Object.keys(labels).sort((a, b) => {
+    const av = counts[a] || 0;
+    const bv = counts[b] || 0;
+    return bv - av;
+  });
+  const values = keys.map(k => counts[k] || 0);
   const max = Math.max(1, ...values);
-  container.innerHTML = Object.keys(labels).map((key) => {
+  container.innerHTML = keys.map((key) => {
     const n = counts[key] || 0;
     const width = n > 0 ? Math.max(4, Math.round((n / max) * 100)) : 0;
     const cls = classes[key] || 'c5';
@@ -1508,6 +1517,7 @@ function renderRegionList(regions) {
 
 // ─── Full Render ─────────────────────────────────────
 function renderAll(snap) {
+  app.lastStateRenderAt = Date.now();
   const prevSnap = app.snap;
   app.snap = snap;
   const role = snap.role || 'companion';
@@ -1605,6 +1615,28 @@ function renderAll(snap) {
     updateChannelBadge();
     updateDmBadge();
   }
+}
+
+function startLiveFallbackPolling() {
+  if (app.liveFallbackInterval) return;
+  app.liveFallbackInterval = setInterval(async () => {
+    const now = Date.now();
+
+    if (app.activeTab === 'logs' && !app.rxlogLiveScroll) {
+      if (now - app.lastRxLogFetchAt > 3000) {
+        await refreshCombinedLog();
+      }
+    }
+
+    if (now - app.lastStateRenderAt > 8000) {
+      try {
+        const snap = await fetch('/api/state').then(r => r.json());
+        if (snap) renderAll(snap);
+      } catch (_) {
+        // Ignore transient fetch failures; SSE may recover independently.
+      }
+    }
+  }, 3000);
 }
 
 // ─── Wire UI ─────────────────────────────────────────
@@ -1966,4 +1998,5 @@ function connectSSE() {
   }, 30000);
 
   connectSSE();
+  startLiveFallbackPolling();
 })();

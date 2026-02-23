@@ -1012,7 +1012,9 @@ class RepeaterClient:
         rows = [line.strip() for line in raw.splitlines() if line.strip() and line.strip() != "-none-"]
         contacts: list[Contact] = []
         now = int(time.time())
-        current_keys = set(self.state.contacts.keys())
+        with self.state._lock:
+            existing_contacts = dict(self.state.contacts)
+        current_keys = set(existing_contacts.keys())
         for row in rows:
             parts = row.split(":")
             if len(parts) < 3:
@@ -1027,15 +1029,45 @@ class RepeaterClient:
             except ValueError:
                 snr_q = 0
             snr_db = round(snr_q / 4.0, 2)
+
+            prev = existing_contacts.get(key)
+
+            kind = prev.kind if prev else 0
+            if len(parts) >= 4:
+                try:
+                    parsed_kind = int(parts[3])
+                    if 0 <= parsed_kind <= 4:
+                        kind = parsed_kind
+                except ValueError:
+                    pass
+
+            name = (prev.name if prev else f"Neighbor {key[:8]}")
+            if len(parts) >= 5:
+                parsed_name = parts[4].strip()
+                if parsed_name:
+                    name = parsed_name
+
+            lat = prev.lat if prev else None
+            lon = prev.lon if prev else None
+            if len(parts) >= 7:
+                try:
+                    lat = float(parts[5])
+                    lon = float(parts[6])
+                except ValueError:
+                    pass
+
+            flags = prev.flags if prev else 0
+            out_path_len = prev.out_path_len if prev else 0
+
             contact = Contact(
                 pubkey=key,
-                kind=2,           # ADV_TYPE_REPEATER — CLI neighbors are always direct repeater peers
-                flags=0,
-                out_path_len=0,   # zero-hop = direct neighbor
-                name=f"Neighbor {key[:8]}",
+                kind=kind,
+                flags=flags,
+                out_path_len=out_path_len,
+                name=name,
                 last_advert_timestamp=max(0, now - max(0, seen_ago)),
-                lat=None,
-                lon=None,
+                lat=lat,
+                lon=lon,
                 lastmod=now,
                 snr=snr_db,
             )
