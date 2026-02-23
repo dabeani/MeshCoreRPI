@@ -26,6 +26,7 @@
       <nav class="tabs" id="tab-nav" role="tablist">
         <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
         <button class="tab-btn" data-tab="charts">Charts</button>
+        <button class="tab-btn" data-tab="stats">Statistics</button>
         <button class="tab-btn" data-tab="contacts">Contacts</button>
         <button class="tab-btn" data-tab="config">Config</button>
         <button class="tab-btn" data-tab="logs">Logs</button>
@@ -89,10 +90,6 @@
                 <input name="lon" placeholder="Lon" type="number" step="0.000001" />
                 <button type="submit">Set Location</button>
               </form>
-              <form id="pub-form" class="row-form companion-only">
-                <input name="msg" placeholder="Public message…" maxlength="180" />
-                <button type="submit">Send</button>
-              </form>
             </div>
 
             <!-- System / hardware stats + graphs -->
@@ -131,6 +128,18 @@
           </div>
         </div>
       </section><!-- /charts -->
+
+
+      <!-- ════════ STATISTICS TAB ════════ -->
+      <section id="tab-stats" class="tab-pane" role="tabpanel">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Received Packet Types</h2>
+            <span id="pktstats-total" class="muted-txt"></span>
+          </div>
+          <div id="pktstats-bars" class="pktstats-list"></div>
+        </div>
+      </section><!-- /stats -->
 
 
       <!-- ════════ CONTACTS TAB ════════ -->

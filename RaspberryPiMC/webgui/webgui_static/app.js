@@ -121,6 +121,9 @@ function switchTab(tabName) {
   if (tabName === 'charts' && app.snap) {
     setTimeout(() => renderCharts(app.snap), 150);
   }
+  if (tabName === 'stats' && app.snap) {
+    renderPacketStats(app.snap.events || []);
+  }
   if (tabName === 'contacts' && app.snap) {
     renderContacts(app.snap, document.getElementById('contact-search')?.value || '');
   }
@@ -196,6 +199,71 @@ function renderRxLogText(text) {
     const cls = t ? `rxlog-line ${t}` : 'rxlog-line';
     const content = line.length ? _esc(line) : '&nbsp;';
     return `<div class="${cls}">${content}</div>`;
+  }).join('');
+}
+
+function _packetStatsKey(ev) {
+  const t = String(ev?.type || '');
+  const payload = ev?.payload || {};
+
+  if (t === 'pkt_rx') return 'pkt_rx';
+  if (t === 'rx_advert' || t === 'neighbor_new') return 'advert';
+  if (t === 'contact_msg' && !payload.outbound) return 'direct_msg';
+  if (t === 'chan_msg' && !payload.outbound) return 'channel_msg';
+  if (t.endsWith('_recv')) return t;
+  if (t.startsWith('rx_')) return t;
+  return null;
+}
+
+function _packetStatsLabel(key) {
+  const labels = {
+    pkt_rx: 'Packet RX',
+    advert: 'Advert',
+    direct_msg: 'Direct Message',
+    channel_msg: 'Channel Message',
+  };
+  return labels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function _stableColorClass(key) {
+  const palette = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'];
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = ((h * 31) + key.charCodeAt(i)) | 0;
+  return palette[Math.abs(h) % palette.length];
+}
+
+function renderPacketStats(events) {
+  const list = document.getElementById('pktstats-bars');
+  const totalEl = document.getElementById('pktstats-total');
+  if (!list || !totalEl) return;
+
+  const counts = {};
+  let total = 0;
+  for (const ev of (events || [])) {
+    const key = _packetStatsKey(ev);
+    if (!key) continue;
+    counts[key] = (counts[key] || 0) + 1;
+    total += 1;
+  }
+
+  totalEl.textContent = `${total} received`;
+  const rows = Object.entries(counts).sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
+  if (!rows.length) {
+    list.innerHTML = '<div class="pktstats-empty">No received packets yet.</div>';
+    return;
+  }
+
+  const max = Math.max(...rows.map(([, n]) => n));
+  list.innerHTML = rows.map(([key, n]) => {
+    const w = Math.max(4, Math.round((n / max) * 100));
+    const cls = _stableColorClass(key);
+    return `<div class="pktstats-row">` +
+      `<div class="pktstats-top">` +
+      `<span class="pktstats-label">${_esc(_packetStatsLabel(key))}</span>` +
+      `<span class="pktstats-count">${n}</span>` +
+      `</div>` +
+      `<div class="pktstats-track"><div class="pktstats-fill ${cls}" style="width:${w}%"></div></div>` +
+      `</div>`;
   }).join('');
 }
 
@@ -1333,6 +1401,7 @@ function renderAll(snap) {
 
   // Tab-specific renders
   if (app.activeTab === 'charts')   renderCharts(snap);
+  if (app.activeTab === 'stats')    renderPacketStats(snap.events || []);
   if (app.activeTab === 'contacts') renderContacts(snap, document.getElementById('contact-search')?.value || '');
   if (app.activeTab === 'logs')     renderLog(snap.events || [], document.getElementById('log-filter')?.value || '');
   if (app.activeTab === 'channels') renderChannels(snap);
@@ -1419,13 +1488,6 @@ function wireUi() {
     if (!isFinite(lat) || !isFinite(lon)) return alert('Invalid coordinates');
     await sendCommand('set_location', { lat, lon });
     e.target.reset();
-  });
-
-  // Public message form (companion)
-  document.getElementById('pub-form')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const text = new FormData(e.target).get('msg')?.trim();
-    if (text) { await sendCommand('public_msg', { text, channel: 0 }); e.target.reset(); }
   });
 
   // Contacts search + type filter buttons
