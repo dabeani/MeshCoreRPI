@@ -406,10 +406,18 @@ class CompanionClient:
                 self.state.messages = self.state.messages[-500:]
         # Resolve channel name for event
         ch_name = next((c["name"] for c in self.state.channels if c["index"] == channel_idx), f"ch{channel_idx}")
-        self.state.add_event("chan_msg", {
-            "channel_idx": channel_idx, "channel": ch_name, "text": text[:80],
-            "path_len": path_len, "snr": snr,
-        })
+        self.state.add_event(
+            "chan_msg",
+            {
+                "channel_idx": channel_idx,
+                "channel": ch_name,
+                "text": text[:80],
+                "path_len": path_len,
+                "txt_type": txt_type,
+                "snr": snr,
+                "ts": ts,
+            },
+        )
 
     def _parse_contact_msg(self, payload: bytes) -> None:
         """Parse RESP_CODE_CONTACT_MSG (0x07) and RESP_CODE_CONTACT_MSG_V3 (0x10)."""
@@ -451,9 +459,18 @@ class CompanionClient:
             self.state.messages.append(msg)
             if len(self.state.messages) > 500:
                 self.state.messages = self.state.messages[-500:]
-        self.state.add_event("contact_msg", {
-            "sender": sender, "text": text[:80], "path_len": path_len, "snr": snr,
-        })
+        self.state.add_event(
+            "contact_msg",
+            {
+                "sender": sender,
+                "pubkey_prefix": pubkey_prefix,
+                "text": text[:80],
+                "path_len": path_len,
+                "txt_type": txt_type,
+                "snr": snr,
+                "ts": ts,
+            },
+        )
 
     def _parse_contact(self, payload: bytes) -> None:
         if len(payload) < 148:
@@ -575,7 +592,7 @@ class CompanionClient:
                 pubkey = payload[1:33].hex()
                 # Include rich data in event so log shows name + location
                 contact = self.state.contacts.get(pubkey)
-                event_data: dict[str, Any] = {"pubkey": pubkey[:16]}
+                event_data: dict[str, Any] = {"pubkey": pubkey}
                 if contact:
                     event_data["name"] = contact.name
                     if contact.lat is not None and (abs(contact.lat) > 0.0001 or abs(contact.lon or 0) > 0.0001):
@@ -583,6 +600,15 @@ class CompanionClient:
                         event_data["lon"] = round(contact.lon or 0, 6)
                     event_data["kind"] = contact.kind
                     event_data["hops"] = contact.out_path_len
+                # Best-effort signal (last radio stats sample; may not be per-advert)
+                radio = self.state.stats.get("radio", {})
+                try:
+                    if "last_rssi" in radio:
+                        event_data["rssi"] = int(radio.get("last_rssi"))
+                    if "last_snr" in radio:
+                        event_data["snr"] = float(radio.get("last_snr"))
+                except Exception:
+                    pass
                 self.state.add_event("rx_advert", event_data)
         elif payload_type == RESP_CODE_SELF_INFO:
             self._parse_self_info(payload)
@@ -802,21 +828,60 @@ class RepeaterClient:
             except ValueError:
                 snr_q = 0
             snr_db = round(snr_q / 4.0, 2)
+
+            # Optional extended format: key:seen_ago:snr_q4:name:lat_i:lon_i
+            name: str | None = None
+            lat_v: float | None = None
+            lon_v: float | None = None
+            if len(parts) >= 6:
+                name = parts[3].strip() or None
+                try:
+                    lat_i = int(parts[4])
+                    lon_i = int(parts[5])
+                    if lat_i != 0 or lon_i != 0:
+                        lat_v = lat_i / 1_000_000.0
+                        lon_v = lon_i / 1_000_000.0
+                except ValueError:
+                    pass
+
+            # If the repeater firmware supports it, fetch per-neighbor metadata.
+            # This keeps the base `neighbors` output compatible and still allows name/location.
+            if name is None and lat_v is None and lon_v is None:
+                try:
+                    info = self.send_cli_command(f"neighbor.get {key}")
+                    if info and info != "-none-" and not info.lower().startswith("err"):
+                        ip = [s.strip() for s in info.split(":")]
+                        if len(ip) >= 3:
+                            name = ip[0] or None
+                            try:
+                                lat_i = int(ip[1])
+                                lon_i = int(ip[2])
+                                if lat_i != 0 or lon_i != 0:
+                                    lat_v = lat_i / 1_000_000.0
+                                    lon_v = lon_i / 1_000_000.0
+                            except ValueError:
+                                pass
+                except Exception:
+                    pass
             contact = Contact(
                 pubkey=key,
                 kind=2,           # ADV_TYPE_REPEATER — CLI neighbors are always direct repeater peers
                 flags=0,
                 out_path_len=0,   # zero-hop = direct neighbor
-                name=f"Neighbor {key[:8]}",
+                name=name or f"Neighbor {key[:8]}",
                 last_advert_timestamp=max(0, now - max(0, seen_ago)),
-                lat=None,
-                lon=None,
+                lat=lat_v,
+                lon=lon_v,
                 lastmod=now,
                 snr=snr_db,
             )
             contacts.append(contact)
             if key not in current_keys:
-                self.state.add_event("neighbor_new", {"pubkey": key, "name": contact.name, "snr": snr_db})
+                payload: dict[str, Any] = {"pubkey": key, "name": contact.name, "snr": snr_db}
+                if contact.lat is not None and contact.lon is not None:
+                    payload["lat"] = round(contact.lat, 6)
+                    payload["lon"] = round(contact.lon, 6)
+                self.state.add_event("neighbor_new", payload)
         self.state.replace_contacts(contacts)
 
     def _update_identity(self) -> None:
@@ -1099,7 +1164,15 @@ class App:
             with self.state._lock:
                 self.state.messages.append(out_msg)
                 self.client._pending_ack_ids.append(msg_id)
-            self.state.add_event("chan_msg_sent", {"channel": ch_name, "text": text.decode("utf-8", errors="replace")[:60]})
+            self.state.add_event(
+                "chan_msg_sent",
+                {
+                    "channel": ch_name,
+                    "channel_idx": channel,
+                    "ts": ts,
+                    "text": text.decode("utf-8", errors="replace")[:60],
+                },
+            )
             self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             return {"channel": channel, "bytes": len(text)}
 
@@ -1134,7 +1207,15 @@ class App:
             with self.state._lock:
                 self.state.messages.append(out_msg)
                 self.client._pending_ack_ids.append(msg_id)
-            self.state.add_event("dm_sent", {"recipient": contact_name, "pubkey_prefix": pubkey_hex[:12], "text": text_raw.decode("utf-8", errors="replace")[:60]})
+            self.state.add_event(
+                "dm_sent",
+                {
+                    "recipient": contact_name,
+                    "pubkey_prefix": pubkey_hex[:12],
+                    "ts": ts,
+                    "text": text_raw.decode("utf-8", errors="replace")[:60],
+                },
+            )
             self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             return {"pubkey_prefix": pubkey_hex[:12], "bytes": len(text_raw)}
 

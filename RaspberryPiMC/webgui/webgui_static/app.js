@@ -668,6 +668,51 @@ function renderLog(events, filter = '') {
     }
   };
 
+  // Prefer a domain timestamp carried in payload (e.g. message timestamp)
+  const eventTs = e => (e?.payload && e.payload.ts != null) ? e.payload.ts : e.ts;
+
+  const asHex2 = n => {
+    if (n == null || Number.isNaN(Number(n))) return '0x??';
+    const v = Number(n) & 0xFF;
+    return '0x' + v.toString(16).padStart(2, '0');
+  };
+
+  const id2 = hex => {
+    const s = String(hex || '').replace(/[^0-9a-f]/ig, '').toLowerCase();
+    return (s.length >= 4) ? s.slice(0, 4).toUpperCase() : '????';
+  };
+
+  const routeDF = hopsOrPathLen => {
+    const n = Number(hopsOrPathLen);
+    if (!Number.isFinite(n) || n < 0) return '–';
+    return (n === 0) ? 'D' : 'F';
+  };
+
+  const fmtSig = p => {
+    const parts = [];
+    if (p?.snr != null)  parts.push(`SNR ${p.snr} dB`);
+    if (p?.rssi != null) parts.push(`RSSI ${p.rssi} dBm`);
+    return parts.length ? parts.join(' / ') : '–';
+  };
+
+  const findContact = pkOrPrefix => {
+    const key = String(pkOrPrefix || '').toLowerCase();
+    if (!key) return null;
+    return contacts.find(c => (c?.pubkey || '').toLowerCase().startsWith(key.slice(0, 8))) || null;
+  };
+
+  const evHash32 = e => {
+    // FNV-1a 32-bit over a short stable string (not protocol packet hash)
+    const p = e?.payload || {};
+    const s = `${e?.type || ''}|${p.ts ?? e?.ts ?? ''}|${p.pubkey || p.pubkey_prefix || ''}|${p.channel_idx ?? p.channel ?? ''}|${p.text || ''}`;
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = (h * 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+  };
+
   const detailStr = e => {
     const p = e.payload || {};
     switch (e.type) {
@@ -689,28 +734,48 @@ function renderLog(events, filter = '') {
         const hopStr  = p.hops === 0   ? ' \u00b7 Direct' : p.hops > 0 ? ` \u00b7 ${p.hops}\u00a0hop${p.hops !== 1 ? 's' : ''}` : '';
         const snrStr  = p.snr  != null ? ` \u00b7 SNR\u00a0${p.snr}\u00a0dB` : '';
         const rssiStr = p.rssi != null ? ` \u00b7 RSSI\u00a0${p.rssi}\u00a0dBm` : '';
-        return `${kindStr}${hopStr}${snrStr}${rssiStr}${locStr}`;
+        const ids = `id ${id2(p.pubkey)}→ME`;
+        const route = routeDF(p.hops);
+        const pos = (p.lat != null && p.lon != null) ? `${p.lat.toFixed(4)},${p.lon.toFixed(4)}` : '–';
+        const sig = fmtSig(p);
+        return `${route} · ADV ${kindStr} · ${ids} · pos ${pos} · sig ${sig} · eh ${evHash32(e)}`;
       }
       case 'chan_msg': {
-        const snrStr = p.snr != null ? ` · SNR ${p.snr} dB` : '';
-        const hopStr = p.path_len === 0 ? ' · Direct' : p.path_len > 0 ? ` · ${p.path_len} hop${p.path_len !== 1 ? 's' : ''}` : '';
-        return `[${p.channel || `ch${p.channel_idx}`}] ${(p.text||'').slice(0,80)}${hopStr}${snrStr}`;
+        const route = routeDF(p.path_len);
+        const ch = p.channel || `ch${p.channel_idx}`;
+        const size = (p.text || '').length;
+        const sig = fmtSig(p);
+        return `${route} · TXT ${asHex2(p.txt_type)} · ????→[${ch}] · len ${size} · path ${p.path_len ?? '–'} · sig ${sig} · ${(p.text||'').slice(0,80)} · eh ${evHash32(e)}`;
       }
       case 'chan_msg_sent': {
-        return `\u2191 Sent to [${p.channel || '?'}]: ${(p.text||'').slice(0,60)}`;
+        const route = 'D';
+        const ch = p.channel || `ch${p.channel_idx}`;
+        const size = (p.text || '').length;
+        return `${route} · TXT ${asHex2(0)} · ME→[${ch}] · len ${size} · ${(p.text||'').slice(0,60)} · eh ${evHash32(e)}`;
       }
       case 'dm_sent': {
-        return `\u2191 DM to ${p.recipient || '?'}: ${(p.text||'').slice(0,60)}`;
+        const route = 'D';
+        const size = (p.text || '').length;
+        const toName = p.recipient || '?';
+        const toId = p.pubkey_prefix ? id2(p.pubkey_prefix) : '????';
+        return `${route} · TXT ${asHex2(0)} · ME→${toName}(${toId}) · len ${size} · ${(p.text||'').slice(0,60)} · eh ${evHash32(e)}`;
       }
       case 'contact_msg': {
-        const snrStr = p.snr != null ? ` · SNR ${p.snr} dB` : '';
-        const hopStr = p.path_len === 0 ? ' · Direct' : p.path_len > 0 ? ` · ${p.path_len} hop${p.path_len !== 1 ? 's' : ''}` : '';
-        return `\uD83D\uDCE8 From ${p.sender || p.pubkey_prefix || '?'}: ${(p.text||'').slice(0,80)}${hopStr}${snrStr}`;
+        const route = routeDF(p.path_len);
+        const from = p.sender || p.pubkey_prefix || '?';
+        const fromId = id2(p.pubkey_prefix);
+        const size = (p.text || '').length;
+        const sig = fmtSig(p);
+        const c = findContact(p.pubkey_prefix);
+        const pos = (c && hasLoc(c)) ? `${c.lat.toFixed(4)},${c.lon.toFixed(4)}` : '–';
+        return `${route} · TXT ${asHex2(p.txt_type)} · ${from}(${fromId})→ME · len ${size} · path ${p.path_len ?? '–'} · pos ${pos} · sig ${sig} · ${(p.text||'').slice(0,80)} · eh ${evHash32(e)}`;
       }
       case 'neighbor_new': {
-        const snr  = p.snr  != null ? `SNR\u00a0${p.snr}\u00a0dB`   : null;
-        const rssi = p.rssi != null ? `RSSI\u00a0${p.rssi}\u00a0dBm` : null;
-        return 'Direct neighbor' + [[snr, rssi].filter(Boolean).join(' \u00b7 ')].filter(Boolean).map(s => ' \u00b7 ' + s).join('');
+        const route = 'D';
+        const name = p.name || findName(p.pubkey) || 'Neighbor';
+        const pos = (p.lat != null && p.lon != null) ? `${Number(p.lat).toFixed(4)},${Number(p.lon).toFixed(4)}` : '–';
+        const sig = fmtSig(p);
+        return `${route} · NBR · ${name}(${id2(p.pubkey)})→ME · pos ${pos} · sig ${sig} · eh ${evHash32(e)}`;
       }
       case 'connected':     return `Connected \u2192 ${p.host || '?'}:${p.port || '?'}`;
       case 'self_info':     return `Node: ${p.name || '(unnamed)'}`;
@@ -732,7 +797,7 @@ function renderLog(events, filter = '') {
   tbody.innerHTML = filtered.slice(0, 500).map(e =>
     `<tr>
       ${dirCell(e.type)}
-      <td style="font-size:11px;color:var(--muted);white-space:nowrap">${fmtTime(e.ts)}</td>
+      <td style="font-size:11px;color:var(--muted);white-space:nowrap">${fmtTime(eventTs(e))}</td>
       <td><span class="log-type-badge ${badgeClass(e.type)}">${e.type}</span></td>
       <td class="log-node-cell">${nodeStr(e)}</td>
       <td style="font-size:11px;font-family:monospace">${detailStr(e)}</td>

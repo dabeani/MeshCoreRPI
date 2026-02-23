@@ -148,7 +148,7 @@ bool getLinuxMemoryUsage(float& mem_usage_pct) {
 }
 #endif
 
-void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float snr) {
+void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float snr, const AdvertDataParser& advert) {
 #if MAX_NEIGHBOURS // check if neighbours enabled
   // find existing neighbour, else use least recently updated
   uint32_t oldest_timestamp = 0xFFFFFFFF;
@@ -172,6 +172,29 @@ void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float sn
   neighbour->advert_timestamp = timestamp;
   neighbour->heard_timestamp = getRTCClock()->getCurrentTime();
   neighbour->snr = (int8_t)(snr * 4);
+
+  // Copy name + location from the advert if present
+  if (advert.isValid() && advert.hasName()) {
+    const char* nm = advert.getName();
+    size_t n = 0;
+    while (nm && nm[n] && n < sizeof(neighbour->name) - 1) {
+      char c = nm[n];
+      // avoid delimiters/newlines so CLI output stays parseable
+      if (c == ':' || c == '\n' || c == '\r' || c == '\t') c = '_';
+      neighbour->name[n] = c;
+      n++;
+    }
+    neighbour->name[n] = 0;
+  } else {
+    neighbour->name[0] = 0;
+  }
+  if (advert.isValid() && advert.hasLatLon()) {
+    neighbour->lat_i = advert.getIntLat();
+    neighbour->lon_i = advert.getIntLon();
+  } else {
+    neighbour->lat_i = 0;
+    neighbour->lon_i = 0;
+  }
 #endif
 }
 
@@ -718,7 +741,7 @@ void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32
   if (packet->path_len == 0 && !isShare(packet)) {
     AdvertDataParser parser(app_data, app_data_len);
     if (parser.isValid() && parser.getType() == ADV_TYPE_REPEATER) { // just keep neigbouring Repeaters
-      putNeighbour(id, timestamp, packet->getSNR());
+      putNeighbour(id, timestamp, packet->getSNR(), parser);
     }
   }
 }
@@ -1366,6 +1389,34 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
       strcpy(reply, "Err - ??");
     }
   } else{
+    // Extended neighbor metadata (repeater-only helper for WebGUI)
+    if (memcmp(command, "neighbor.get ", 13) == 0) {
+#if MAX_NEIGHBOURS
+      const char* hex = &command[13];
+      uint8_t key[4];
+      int hex_len = min((int)strlen(hex), 8);
+      int key_len = hex_len / 2;
+      if (key_len <= 0 || !mesh::Utils::fromHex(key, key_len, hex)) {
+        strcpy(reply, "ERR: bad pubkey");
+        return;
+      }
+
+      bool found = false;
+      for (int i = 0; i < MAX_NEIGHBOURS; i++) {
+        auto n = &neighbours[i];
+        if (n->heard_timestamp == 0) continue;
+        if (memcmp(n->id.pub_key, key, key_len) == 0) {
+          sprintf(reply, "%s:%ld:%ld", n->name, (long)n->lat_i, (long)n->lon_i);
+          found = true;
+          break;
+        }
+      }
+      if (!found) strcpy(reply, "-none-");
+#else
+      strcpy(reply, "-none-");
+#endif
+      return;
+    }
     _cli.handleCommand(sender_timestamp, command, reply);  // common CLI commands
   }
 }
