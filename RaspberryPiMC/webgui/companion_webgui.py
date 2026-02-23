@@ -60,6 +60,7 @@ APP_NAME = b"mc-webgui"
 _FLOAT_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
 _CONFIG_KEY_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 _REGION_NAME_RE = re.compile(r"^[#*a-zA-Z0-9._-]+$")
+_RX_HEADER_RE = re.compile(r"RX,.*\(type=(\d+),\s*route=([A-Za-z])")
 
 REPEATER_CONFIG_KEYS: dict[str, list[str]] = {
     "radio": [
@@ -185,6 +186,96 @@ def _read_packet_log_tail(lines: int, max_bytes: int = 64 * 1024) -> str:
         except OSError:
             continue
     return "-none-"
+
+
+def _compute_packet_header_breakdown(max_bytes: int = 4 * 1024 * 1024) -> dict[str, Any]:
+    transport_payload_types = {0x00, 0x01, 0x08}  # REQ, RESP, PATH
+    routing = {
+        "transport_flood": 0,
+        "flood": 0,
+        "direct": 0,
+        "transport_direct": 0,
+    }
+    payload = {
+        "req": 0,
+        "resp": 0,
+        "txt": 0,
+        "ack": 0,
+        "advert": 0,
+        "path": 0,
+    }
+    code_to_payload = {
+        0x00: "req",
+        0x01: "resp",
+        0x02: "txt",
+        0x03: "ack",
+        0x04: "advert",
+        0x08: "path",
+    }
+    total_rx = 0
+
+    for p in _packet_log_candidate_paths():
+        try:
+            if not p.exists() or not p.is_file():
+                continue
+            size = p.stat().st_size
+            if size <= 0:
+                return {
+                    "routing": routing,
+                    "payload": payload,
+                    "total_rx": 0,
+                    "source": str(p),
+                }
+
+            start = max(0, size - max_bytes)
+            with p.open("rb") as f:
+                if start > 0:
+                    f.seek(start)
+                data = f.read()
+
+            if start > 0:
+                nl = data.find(b"\n")
+                if nl >= 0:
+                    data = data[nl + 1 :]
+
+            text = data.decode("utf-8", errors="replace")
+            for line in text.splitlines():
+                m = _RX_HEADER_RE.search(line)
+                if not m:
+                    continue
+                try:
+                    ptype = int(m.group(1))
+                except ValueError:
+                    continue
+                route_ch = m.group(2).upper()
+
+                total_rx += 1
+
+                payload_key = code_to_payload.get(ptype)
+                if payload_key:
+                    payload[payload_key] += 1
+
+                is_transport = ptype in transport_payload_types
+                if route_ch == "F":
+                    routing["transport_flood" if is_transport else "flood"] += 1
+                elif route_ch == "D":
+                    routing["transport_direct" if is_transport else "direct"] += 1
+
+            return {
+                "routing": routing,
+                "payload": payload,
+                "total_rx": total_rx,
+                "source": str(p),
+            }
+        except OSError:
+            continue
+
+    return {
+        "routing": routing,
+        "payload": payload,
+        "total_rx": 0,
+        "source": "",
+    }
 
 
 @dataclass
@@ -1166,6 +1257,9 @@ class App:
                     pass
             return {"cleared": True}
 
+        if name == "header_stats":
+            return _compute_packet_header_breakdown()
+
         if name == "public_msg":
             text = str(args.get("text", "")).encode("utf-8")[:180]
             channel = int(args.get("channel", 0)) & 0xFF
@@ -1356,6 +1450,9 @@ class App:
         if name == "clear_rxlog":
             reply = self.client.send_cli_command("clear_rxlog")
             return {"reply": reply}
+
+        if name == "header_stats":
+            return _compute_packet_header_breakdown()
 
         if name == "config_schema":
             return {

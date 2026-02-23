@@ -27,6 +27,9 @@ const app = {
   dmEverViewed: {},          // pubkey_prefix -> bool
   rxlogLiveScroll: false,    // whether RxLog live scroll is enabled
   rxlogInterval: null,       // interval ID for live scroll
+  headerStats: null,         // cached backend packet header stats
+  headerStatsLastFetch: 0,   // unix ms of last fetch
+  headerStatsFetching: false,
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
@@ -122,7 +125,7 @@ function switchTab(tabName) {
     setTimeout(() => renderCharts(app.snap), 150);
   }
   if (tabName === 'stats' && app.snap) {
-    renderPacketStats(app.snap.events || []);
+    refreshPacketStats();
   }
   if (tabName === 'contacts' && app.snap) {
     renderContacts(app.snap, document.getElementById('contact-search')?.value || '');
@@ -219,19 +222,34 @@ function _renderFixedBars(container, labels, counts, classes) {
   }).join('');
 }
 
-function renderPacketStats(events) {
+async function refreshPacketStats() {
+  if (app.headerStatsFetching) return;
+  app.headerStatsFetching = true;
+  try {
+    const d = await sendCommand('header_stats');
+    if (d?.ok && d.payload) {
+      app.headerStats = d.payload;
+      app.headerStatsLastFetch = Date.now();
+    }
+  } finally {
+    app.headerStatsFetching = false;
+    renderPacketStats(app.headerStats);
+  }
+}
+
+function renderPacketStats(stats) {
   const routingEl = document.getElementById('pktstats-routing-bars');
   const payloadEl = document.getElementById('pktstats-payload-bars');
   const totalEl = document.getElementById('pktstats-total');
   if (!routingEl || !payloadEl || !totalEl) return;
 
-  const routingCounts = {
+  const routingCounts = stats?.routing || {
     transport_flood: 0,
     flood: 0,
     direct: 0,
     transport_direct: 0,
   };
-  const payloadCounts = {
+  const payloadCounts = stats?.payload || {
     req: 0,
     resp: 0,
     txt: 0,
@@ -239,40 +257,7 @@ function renderPacketStats(events) {
     advert: 0,
     path: 0,
   };
-
-  let total = 0;
-  for (const ev of (events || [])) {
-    const type = String(ev?.type || '');
-    const p = ev?.payload || {};
-    let routeKey = null;
-    let payloadKey = null;
-
-    if (type === 'rx_advert' || type === 'neighbor_new') {
-      routeKey = 'flood';
-      payloadKey = 'advert';
-    } else if (type === 'chan_msg' || type === 'contact_msg') {
-      const txtType = Number(p.txt_type);
-      if (txtType === 0x00) payloadKey = 'req';
-      else if (txtType === 0x01) payloadKey = 'resp';
-      else if (txtType === 0x02) payloadKey = 'txt';
-      else if (txtType === 0x03) payloadKey = 'ack';
-      else if (txtType === 0x04) payloadKey = 'advert';
-      else if (txtType === 0x08) payloadKey = 'path';
-
-      const pathLen = Number(p.path_len);
-      const isTransport = payloadKey === 'req' || payloadKey === 'resp' || payloadKey === 'path';
-      if (Number.isFinite(pathLen)) {
-        if (pathLen === 0) routeKey = isTransport ? 'transport_direct' : 'direct';
-        else if (pathLen > 0) routeKey = isTransport ? 'transport_flood' : 'flood';
-      }
-    }
-
-    if (routeKey || payloadKey) total += 1;
-    if (routeKey) routingCounts[routeKey] = (routingCounts[routeKey] || 0) + 1;
-    if (payloadKey) payloadCounts[payloadKey] = (payloadCounts[payloadKey] || 0) + 1;
-  }
-
-  totalEl.textContent = `${total} classified received packets`;
+  totalEl.textContent = `${Number(stats?.total_rx || 0)} RX packets`;
 
   _renderFixedBars(
     routingEl,
@@ -1448,7 +1433,12 @@ function renderAll(snap) {
 
   // Tab-specific renders
   if (app.activeTab === 'charts')   renderCharts(snap);
-  if (app.activeTab === 'stats')    renderPacketStats(snap.events || []);
+  if (app.activeTab === 'stats') {
+    if ((Date.now() - app.headerStatsLastFetch) > 2500 && !app.headerStatsFetching) {
+      refreshPacketStats();
+    }
+    renderPacketStats(app.headerStats);
+  }
   if (app.activeTab === 'contacts') renderContacts(snap, document.getElementById('contact-search')?.value || '');
   if (app.activeTab === 'logs')     renderLog(snap.events || [], document.getElementById('log-filter')?.value || '');
   if (app.activeTab === 'channels') renderChannels(snap);
