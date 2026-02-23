@@ -11,6 +11,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cctype>
+#include <cstring>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -39,6 +40,76 @@ static void sig_handler(int) {
 }
 
 namespace {
+
+bool startsWith(const std::string& value, const char* prefix) {
+  if (!prefix) return false;
+  const size_t n = std::strlen(prefix);
+  if (value.size() < n) return false;
+  return value.compare(0, n, prefix) == 0;
+}
+
+int parseRxlogLines(const std::string& cmd, int fallback) {
+  // Accept: "rxlog" or "rxlog <lines>"
+  if (cmd == "rxlog") return fallback;
+  if (!startsWith(cmd, "rxlog")) return fallback;
+
+  size_t i = 5;
+  while (i < cmd.size() && std::isspace(static_cast<unsigned char>(cmd[i])) != 0) i++;
+  if (i >= cmd.size()) return fallback;
+  try {
+    return std::stoi(cmd.substr(i));
+  } catch (...) {
+    return fallback;
+  }
+}
+
+std::string readRxlogTail(int max_lines) {
+  // Read the last chunk of the packet log and then return the last N lines.
+  // Keep replies bounded so the TCP JSON response stays manageable.
+  constexpr size_t kMaxBytes = 64 * 1024;
+  const char* path = PACKET_LOG_FILE;
+
+  File f = LittleFS.open(path, "r");
+  if (!f) return "-none-";
+  const size_t sz = f.size();
+  if (sz == 0) return "-empty-";
+
+  const size_t start = (sz > kMaxBytes) ? (sz - kMaxBytes) : 0;
+  if (start > 0) {
+    f.seek(start);
+  }
+
+  std::string data;
+  data.resize(sz - start);
+  const size_t got = f.read(reinterpret_cast<uint8_t*>(data.data()), data.size());
+  data.resize(got);
+  f.close();
+
+  if (start > 0) {
+    // Drop the first partial line so we return clean log lines.
+    const size_t nl = data.find('\n');
+    if (nl != std::string::npos) {
+      data.erase(0, nl + 1);
+    }
+  }
+
+  if (max_lines <= 0) return data;
+  int lines = 0;
+  size_t cut = 0;
+  for (size_t idx = data.size(); idx > 0; --idx) {
+    if (data[idx - 1] == '\n') {
+      lines++;
+      if (lines > max_lines) {
+        cut = idx;
+        break;
+      }
+    }
+  }
+  if (cut > 0 && cut < data.size()) {
+    return data.substr(cut);
+  }
+  return data;
+}
 
 std::string trim(std::string value) {
   size_t start = 0;
@@ -476,7 +547,19 @@ int main(int argc, char** argv) {
 #ifdef __linux__
       if (tcp_bridge.isEnabled()) {
         tcp_bridge.loop([&](const std::string& cmd, std::string& reply) {
-          std::vector<char> command(cmd.begin(), cmd.end());
+          const std::string line = trim(cmd);
+          if (startsWith(line, "rxlog")) {
+            int lines = parseRxlogLines(line, 200);
+            if (lines < 10) lines = 10;
+            if (lines > 5000) lines = 5000;
+            {
+              std::lock_guard<std::mutex> lock(command_mutex);
+              reply = readRxlogTail(lines);
+            }
+            return;
+          }
+
+          std::vector<char> command(line.begin(), line.end());
           command.push_back('\0');
           char out[1024]{};
           {
