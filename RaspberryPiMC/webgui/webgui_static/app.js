@@ -225,11 +225,15 @@ function _packetStatsLabel(key) {
   return labels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function _stableColorClass(key) {
-  const palette = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'];
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = ((h * 31) + key.charCodeAt(i)) | 0;
-  return palette[Math.abs(h) % palette.length];
+function _packetStatsColorClass(key) {
+  const fixed = {
+    pkt_rx: 'c1',
+    advert: 'c2',
+    direct_msg: 'c3',
+    channel_msg: 'c4',
+  };
+  if (fixed[key]) return fixed[key];
+  return 'c5';
 }
 
 function renderPacketStats(events) {
@@ -256,7 +260,7 @@ function renderPacketStats(events) {
   const max = Math.max(...rows.map(([, n]) => n));
   list.innerHTML = rows.map(([key, n]) => {
     const w = Math.max(4, Math.round((n / max) * 100));
-    const cls = _stableColorClass(key);
+    const cls = _packetStatsColorClass(key);
     return `<div class="pktstats-row">` +
       `<div class="pktstats-top">` +
       `<span class="pktstats-label">${_esc(_packetStatsLabel(key))}</span>` +
