@@ -157,13 +157,46 @@ async function refreshRxLog() {
   out.textContent = 'Loading…';
   const d = await sendCommand('rxlog', { lines });
   if (d?.ok) {
-    out.textContent = d.payload?.text ?? '';
+    renderRxLogText(d.payload?.text ?? '');
     if (app.rxlogLiveScroll) {
       out.scrollTop = out.scrollHeight;
     }
   } else {
-    out.textContent = `Error: ${d?.error || 'rxlog failed'}`;
+    renderRxLogText(`Error: ${d?.error || 'rxlog failed'}`);
   }
+}
+
+function rxlogLineType(line) {
+  const lower = String(line || '').toLowerCase();
+  if (!lower) return '';
+  if (
+    lower.includes('err') ||
+    lower.includes('fail') ||
+    lower.includes('drop') ||
+    lower.includes('crc')
+  ) {
+    return 'err';
+  }
+  if (lower.includes('warn')) return 'warn';
+  if (lower.startsWith('rx') || lower.includes(' rx ') || lower.includes('rx:') || lower.includes('<-')) {
+    return 'rx';
+  }
+  if (lower.startsWith('tx') || lower.includes(' tx ') || lower.includes('tx:') || lower.includes('->')) {
+    return 'tx';
+  }
+  return '';
+}
+
+function renderRxLogText(text) {
+  const out = document.getElementById('rxlog-output');
+  if (!out) return;
+  const lines = String(text ?? '').split('\n');
+  out.innerHTML = lines.map(line => {
+    const t = rxlogLineType(line);
+    const cls = t ? `rxlog-line ${t}` : 'rxlog-line';
+    const content = line.length ? _esc(line) : '&nbsp;';
+    return `<div class="${cls}">${content}</div>`;
+  }).join('');
 }
 
 // ─── Stat Cards ──────────────────────────────────────
