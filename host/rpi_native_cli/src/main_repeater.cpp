@@ -559,6 +559,15 @@ int main(int argc, char** argv) {
             return;
           }
 
+          if (line == "clear_rxlog") {
+            {
+              std::lock_guard<std::mutex> lock(command_mutex);
+              std::remove(PACKET_LOG_FILE);
+              reply = "Log cleared";
+            }
+            return;
+          }
+
           std::vector<char> command(line.begin(), line.end());
           command.push_back('\0');
           char out[1024]{};

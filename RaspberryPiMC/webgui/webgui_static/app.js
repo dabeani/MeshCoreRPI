@@ -1425,6 +1425,15 @@ function wireUi() {
 
   document.getElementById('btn-rxlog-refresh')?.addEventListener('click', refreshRxLog);
 
+  document.getElementById('btn-rxlog-clear')?.addEventListener('click', async () => {
+    const d = await sendCommand('clear_rxlog');
+    if (d?.ok) {
+      document.getElementById('rxlog-output').textContent = '';
+    } else {
+      alert(`Clear failed: ${d?.error || 'unknown error'}`);
+    }
+  });
+
   document.getElementById('rxlog-live-scroll')?.addEventListener('change', e => {
     app.rxlogLiveScroll = e.target.checked;
     if (app.rxlogLiveScroll) {

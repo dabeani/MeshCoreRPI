@@ -1156,6 +1156,16 @@ class App:
             lines = max(10, min(5000, lines))
             return {"lines": lines, "text": _read_packet_log_tail(lines)}
 
+        if name == "clear_rxlog":
+            for p in _packet_log_candidate_paths():
+                try:
+                    if p.exists():
+                        p.unlink()
+                        break
+                except OSError:
+                    pass
+            return {"cleared": True}
+
         if name == "public_msg":
             text = str(args.get("text", "")).encode("utf-8")[:180]
             channel = int(args.get("channel", 0)) & 0xFF
@@ -1342,6 +1352,10 @@ class App:
             lines = max(10, min(5000, lines))
             text = self.client.send_cli_command(f"rxlog {lines}")
             return {"lines": lines, "text": text}
+
+        if name == "clear_rxlog":
+            reply = self.client.send_cli_command("clear_rxlog")
+            return {"reply": reply}
 
         if name == "config_schema":
             return {
