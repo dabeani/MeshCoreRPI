@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <string>
 #include <vector>
 
 class LinuxTcpSerialInterface : public BaseSerialInterface {
@@ -22,20 +23,29 @@ public:
   size_t checkRecvFrame(uint8_t dest[]) override;
 
 private:
+  struct ClientState {
+    int fd = -1;
+    bool is_webgui = false;
+    std::vector<uint8_t> recv_buffer;
+    std::vector<uint8_t> send_buffer;
+  };
+
   int port;
   int listen_fd = -1;
-  int client_fd = -1;
+  std::deque<ClientState> clients;
+  int owner_fd = -1;
   bool enabled = false;
 
   std::deque<std::vector<uint8_t>> inbound_frames;
-  std::deque<std::vector<uint8_t>> outbound_frames;
-  std::vector<uint8_t> recv_buffer;
 
   void openServer();
   void closeAll();
-  void closeClient();
-  void acceptClientIfAny();
-  void recvFromClient();
-  void sendToClient();
-  void parseIncomingFrames();
+  void acceptClientsIfAny();
+  void dropClient(size_t idx);
+  void chooseOwner();
+  void recvFromClients();
+  void sendToClients();
+  void parseIncomingFrames(ClientState& client);
+  bool shouldAcceptInboundFrom(const ClientState& client) const;
+  void maybeUpdateClientIdentity(ClientState& client, const std::vector<uint8_t>& payload);
 };
