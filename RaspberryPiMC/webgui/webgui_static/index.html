@@ -304,10 +304,9 @@
       <section id="tab-logs" class="tab-pane" role="tabpanel">
         <div class="panel">
           <div class="panel-header">
-            <h2>Combined Packet &amp; Event Log</h2>
+            <h2>Live Packet Log</h2>
             <div class="inline-actions">
               <label><input id="rxlog-live-scroll" type="checkbox" /> Live Scroll</label>
-              <input id="rxlog-lines" class="search-input" type="number" min="50" max="5000" step="50" value="400" />
               <select id="log-route-filter">
                 <option value="all">Routing: All</option>
                 <option value="transport_flood">0x00 Transport Flood</option>
@@ -325,7 +324,6 @@
                 <option value="path">0x08 PATH</option>
               </select>
               <input id="log-filter" class="search-input" placeholder="Search…" />
-              <button id="btn-rxlog-refresh">Refresh</button>
               <button id="btn-rxlog-clear">Clear</button>
             </div>
           </div>
@@ -347,6 +345,8 @@
             </div>
             <ul id="dm-contact-list" class="ch-list"></ul>
           </div>
+
+          <div class="ch-resizer" data-resize-target="dm" title="Drag to resize"></div>
 
           <!-- Chat area -->
           <div class="ch-chat panel">
@@ -376,6 +376,8 @@
             </div>
             <ul id="ch-list" class="ch-list"></ul>
           </div>
+
+          <div class="ch-resizer" data-resize-target="ch" title="Drag to resize"></div>
 
           <!-- Chat area -->
           <div class="ch-chat panel">

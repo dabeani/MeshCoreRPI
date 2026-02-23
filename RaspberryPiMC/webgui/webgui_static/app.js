@@ -35,6 +35,7 @@ const app = {
   ws: null,
   wsConnected: false,
   wsRetryTimer: null,
+  chSidebarWidth: 220,
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
@@ -136,11 +137,7 @@ function switchTab(tabName) {
     renderContacts(app.snap, document.getElementById('contact-search')?.value || '');
   }
   if (tabName === 'logs' && app.snap) {
-    if (app.latestRxLogLines.length) {
-      renderCombinedLog();
-    } else {
-      refreshCombinedLog();
-    }
+    renderCombinedLog();
   }
   if (tabName === 'messages' && app.snap) {
     app.unreadDms.clear();
@@ -160,26 +157,8 @@ function switchTab(tabName) {
 async function refreshCombinedLog() {
   const out = document.getElementById('combined-log-output');
   if (!out) return;
-
-  const linesEl = document.getElementById('rxlog-lines');
-  let lines = parseInt(linesEl?.value || '400', 10);
-  if (!Number.isFinite(lines)) lines = 400;
-  lines = Math.max(50, Math.min(5000, lines));
-  if (linesEl) linesEl.value = String(lines);
-
-  out.textContent = 'Loading…';
-  const d = await sendCommand('rxlog', { lines });
-  app.lastRxLogFetchAt = Date.now();
-  if (d?.ok) {
-    _setRxLogFromText(d.payload?.text ?? '');
-    renderCombinedLog();
-    if (app.rxlogLiveScroll) {
-      out.scrollTop = out.scrollHeight;
-    }
-  } else {
-    _setRxLogFromText(`Error: ${d?.error || 'rxlog failed'}`);
-    renderCombinedLog();
-  }
+  renderCombinedLog();
+  if (app.rxlogLiveScroll) out.scrollTop = out.scrollHeight;
 }
 
 function _normalizeLogLines(lines) {
@@ -302,16 +281,7 @@ function renderCombinedLog() {
   const routeFilter = document.getElementById('log-route-filter')?.value || 'all';
   const payloadFilter = document.getElementById('log-payload-filter')?.value || 'all';
 
-  const packetEntries = _parsePacketLogLines(app.latestRxLogText);
-  const eventEntries = (app.snap?.events || []).slice(-400).map(e => ({
-    kind: 'event',
-    text: `[EVT:${e.type}] ${_eventLine(e)}`,
-    payloadKey: null,
-    routeKey: null,
-    cls: _eventClass(e.type),
-  }));
-
-  let entries = [...packetEntries, ...eventEntries];
+  let entries = _parsePacketLogLines(app.latestRxLogText);
   entries = entries.filter(en => {
     if (routeFilter !== 'all' && en.routeKey !== routeFilter) return false;
     if (payloadFilter !== 'all' && en.payloadKey !== payloadFilter) return false;
@@ -1649,6 +1619,8 @@ function renderAll(snap) {
 
 // ─── Wire UI ─────────────────────────────────────────
 function wireUi() {
+  initChannelSidebarResize();
+
   // Tab buttons
   document.querySelectorAll('.tab-btn').forEach(btn =>
     btn.addEventListener('click', () => switchTab(btn.dataset.tab))
@@ -1724,18 +1696,10 @@ function wireUi() {
   document.getElementById('log-route-filter')?.addEventListener('change', () => renderCombinedLog());
   document.getElementById('log-payload-filter')?.addEventListener('change', () => renderCombinedLog());
 
-  document.getElementById('btn-rxlog-refresh')?.addEventListener('click', refreshCombinedLog);
-
-  document.getElementById('btn-rxlog-clear')?.addEventListener('click', async () => {
-    const d = await sendCommand('clear_rxlog');
-    if (d?.ok) {
-      app.latestRxLogText = '';
-      app.latestRxLogLines = [];
-      if (app.snap) app.snap.events = [];
-      renderCombinedLog();
-    } else {
-      alert(`Clear failed: ${d?.error || 'unknown error'}`);
-    }
+  document.getElementById('btn-rxlog-clear')?.addEventListener('click', () => {
+    app.latestRxLogText = '';
+    app.latestRxLogLines = [];
+    renderCombinedLog();
   });
 
   document.getElementById('rxlog-live-scroll')?.addEventListener('change', e => {
@@ -1975,11 +1939,6 @@ function _handleRealtimeEvent(msg) {
     renderAll(msg.payload);
     return;
   }
-  if (msg.type === 'rxlog_snapshot') {
-    _setRxLogFromText((msg.payload?.lines || []).join('\n'));
-    if (app.activeTab === 'logs') renderCombinedLog();
-    return;
-  }
   if (msg.type === 'rxlog_lines') {
     _appendRxLogLines(msg.payload?.lines || []);
     if (app.activeTab === 'logs') {
@@ -1990,6 +1949,44 @@ function _handleRealtimeEvent(msg) {
       }
     }
   }
+}
+
+function initChannelSidebarResize() {
+  const saved = Number(window.localStorage.getItem('mc-ch-sidebar-w'));
+  if (Number.isFinite(saved)) {
+    app.chSidebarWidth = Math.max(180, Math.min(520, saved));
+  }
+  document.documentElement.style.setProperty('--ch-sidebar-w', `${app.chSidebarWidth}px`);
+
+  const resizers = document.querySelectorAll('.ch-resizer');
+  resizers.forEach(resizer => {
+    resizer.addEventListener('pointerdown', ev => {
+      if (window.matchMedia('(max-width: 900px)').matches) return;
+      ev.preventDefault();
+      resizer.classList.add('is-dragging');
+      const layout = resizer.closest('.ch-layout');
+      if (!layout) return;
+
+      const layoutRect = layout.getBoundingClientRect();
+
+      const onMove = moveEv => {
+        const rel = moveEv.clientX - layoutRect.left;
+        const width = Math.max(180, Math.min(520, Math.round(rel - 11)));
+        app.chSidebarWidth = width;
+        document.documentElement.style.setProperty('--ch-sidebar-w', `${width}px`);
+      };
+
+      const onUp = () => {
+        resizer.classList.remove('is-dragging');
+        window.localStorage.setItem('mc-ch-sidebar-w', String(app.chSidebarWidth));
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
+  });
 }
 
 function connectWebSocket() {

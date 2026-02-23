@@ -1237,10 +1237,6 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             init = {"type": "state", "payload": self.server.state.snapshot(), "ts": int(time.time())}
             self._ws_send_json(init)
 
-            initial_log_text = _read_packet_log_tail(400)
-            initial_log_lines = [line for line in str(initial_log_text).splitlines() if line and line != "-none-"]
-            self._ws_send_json({"type": "rxlog_snapshot", "payload": {"lines": initial_log_lines}, "ts": int(time.time())})
-
             while True:
                 try:
                     event = q.get(timeout=15.0)
@@ -1339,6 +1335,18 @@ class App:
         self.bind_port = bind_port
         self.static_dir = static_dir
         self.stop_event = threading.Event()
+
+    def _clear_log_history(self) -> None:
+        for p in _packet_log_candidate_paths():
+            try:
+                if p.exists():
+                    p.unlink()
+                    break
+            except OSError:
+                pass
+        with self.state._lock:
+            self.state.events = []
+        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
 
     def _packet_log_watch_loop(self) -> None:
         partial_line = ""
@@ -1447,13 +1455,7 @@ class App:
             return {"lines": lines, "text": _read_packet_log_tail(lines)}
 
         if name == "clear_rxlog":
-            for p in _packet_log_candidate_paths():
-                try:
-                    if p.exists():
-                        p.unlink()
-                        break
-                except OSError:
-                    pass
+            self._clear_log_history()
             return {"cleared": True}
 
         if name == "header_stats":
@@ -1648,6 +1650,7 @@ class App:
 
         if name == "clear_rxlog":
             reply = self.client.send_cli_command("clear_rxlog")
+            self._clear_log_history()
             return {"reply": reply}
 
         if name == "header_stats":
