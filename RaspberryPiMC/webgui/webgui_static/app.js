@@ -201,73 +201,116 @@ function renderRxLogText(text) {
   }).join('');
 }
 
-function _packetStatsKey(ev) {
-  const t = String(ev?.type || '');
-  const payload = ev?.payload || {};
-
-  if (t === 'pkt_rx') return 'pkt_rx';
-  if (t === 'rx_advert' || t === 'neighbor_new') return 'advert';
-  if (t === 'contact_msg' && !payload.outbound) return 'direct_msg';
-  if (t === 'chan_msg' && !payload.outbound) return 'channel_msg';
-  if (t.endsWith('_recv')) return t;
-  if (t.startsWith('rx_')) return t;
-  return null;
-}
-
-function _packetStatsLabel(key) {
-  const labels = {
-    pkt_rx: 'Packet RX',
-    advert: 'Advert',
-    direct_msg: 'Direct Message',
-    channel_msg: 'Channel Message',
-  };
-  return labels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-}
-
-function _packetStatsColorClass(key) {
-  const fixed = {
-    pkt_rx: 'c1',
-    advert: 'c2',
-    direct_msg: 'c3',
-    channel_msg: 'c4',
-  };
-  if (fixed[key]) return fixed[key];
-  return 'c5';
+function _renderFixedBars(container, labels, counts, classes) {
+  if (!container) return;
+  const values = Object.keys(labels).map(k => counts[k] || 0);
+  const max = Math.max(1, ...values);
+  container.innerHTML = Object.keys(labels).map((key) => {
+    const n = counts[key] || 0;
+    const width = n > 0 ? Math.max(4, Math.round((n / max) * 100)) : 0;
+    const cls = classes[key] || 'c5';
+    return `<div class="pktstats-row">` +
+      `<div class="pktstats-top">` +
+      `<span class="pktstats-label">${labels[key]}</span>` +
+      `<span class="pktstats-count">${n}</span>` +
+      `</div>` +
+      `<div class="pktstats-track"><div class="pktstats-fill ${cls}" style="width:${width}%"></div></div>` +
+      `</div>`;
+  }).join('');
 }
 
 function renderPacketStats(events) {
-  const list = document.getElementById('pktstats-bars');
+  const routingEl = document.getElementById('pktstats-routing-bars');
+  const payloadEl = document.getElementById('pktstats-payload-bars');
   const totalEl = document.getElementById('pktstats-total');
-  if (!list || !totalEl) return;
+  if (!routingEl || !payloadEl || !totalEl) return;
 
-  const counts = {};
+  const routingCounts = {
+    transport_flood: 0,
+    flood: 0,
+    direct: 0,
+    transport_direct: 0,
+  };
+  const payloadCounts = {
+    req: 0,
+    resp: 0,
+    txt: 0,
+    ack: 0,
+    advert: 0,
+    path: 0,
+  };
+
   let total = 0;
   for (const ev of (events || [])) {
-    const key = _packetStatsKey(ev);
-    if (!key) continue;
-    counts[key] = (counts[key] || 0) + 1;
-    total += 1;
+    const type = String(ev?.type || '');
+    const p = ev?.payload || {};
+    let routeKey = null;
+    let payloadKey = null;
+
+    if (type === 'rx_advert' || type === 'neighbor_new') {
+      routeKey = 'flood';
+      payloadKey = 'advert';
+    } else if (type === 'chan_msg' || type === 'contact_msg') {
+      const txtType = Number(p.txt_type);
+      if (txtType === 0x00) payloadKey = 'req';
+      else if (txtType === 0x01) payloadKey = 'resp';
+      else if (txtType === 0x02) payloadKey = 'txt';
+      else if (txtType === 0x03) payloadKey = 'ack';
+      else if (txtType === 0x04) payloadKey = 'advert';
+      else if (txtType === 0x08) payloadKey = 'path';
+
+      const pathLen = Number(p.path_len);
+      const isTransport = payloadKey === 'req' || payloadKey === 'resp' || payloadKey === 'path';
+      if (Number.isFinite(pathLen)) {
+        if (pathLen === 0) routeKey = isTransport ? 'transport_direct' : 'direct';
+        else if (pathLen > 0) routeKey = isTransport ? 'transport_flood' : 'flood';
+      }
+    }
+
+    if (routeKey || payloadKey) total += 1;
+    if (routeKey) routingCounts[routeKey] = (routingCounts[routeKey] || 0) + 1;
+    if (payloadKey) payloadCounts[payloadKey] = (payloadCounts[payloadKey] || 0) + 1;
   }
 
-  totalEl.textContent = `${total} received`;
-  const rows = Object.entries(counts).sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
-  if (!rows.length) {
-    list.innerHTML = '<div class="pktstats-empty">No received packets yet.</div>';
-    return;
-  }
+  totalEl.textContent = `${total} classified received packets`;
 
-  const max = Math.max(...rows.map(([, n]) => n));
-  list.innerHTML = rows.map(([key, n]) => {
-    const w = Math.max(4, Math.round((n / max) * 100));
-    const cls = _packetStatsColorClass(key);
-    return `<div class="pktstats-row">` +
-      `<div class="pktstats-top">` +
-      `<span class="pktstats-label">${_esc(_packetStatsLabel(key))}</span>` +
-      `<span class="pktstats-count">${n}</span>` +
-      `</div>` +
-      `<div class="pktstats-track"><div class="pktstats-fill ${cls}" style="width:${w}%"></div></div>` +
-      `</div>`;
-  }).join('');
+  _renderFixedBars(
+    routingEl,
+    {
+      transport_flood: '0x00 Transport Flood',
+      flood: '0x01 Flood',
+      direct: '0x02 Direct',
+      transport_direct: '0x03 Transport Direct',
+    },
+    routingCounts,
+    {
+      transport_flood: 'c1',
+      flood: 'c2',
+      direct: 'c3',
+      transport_direct: 'c4',
+    },
+  );
+
+  _renderFixedBars(
+    payloadEl,
+    {
+      req: '0x00 REQ',
+      resp: '0x01 RESP',
+      txt: '0x02 TXT',
+      ack: '0x03 ACK',
+      advert: '0x04 ADVERT',
+      path: '0x08 PATH',
+    },
+    payloadCounts,
+    {
+      req: 'c1',
+      resp: 'c2',
+      txt: 'c3',
+      ack: 'c4',
+      advert: 'c5',
+      path: 'c6',
+    },
+  );
 }
 
 // ─── Stat Cards ──────────────────────────────────────
@@ -1104,7 +1147,7 @@ function renderChannels(snap) {
     const last      = chMsgs[chMsgs.length - 1];
     const lastText  = last ? last.text.slice(0, 28) + (last.text.length > 28 ? '…' : '') : 'No messages yet';
     const icon      = ch.index === 0 ? '#' : String(ch.index);
-    return `<li class="ch-list-item${isActive ? ' active' : ''}" data-ch-idx="${ch.index}">
+    return `<li class="ch-list-item${isActive ? ' active' : ''}${unread ? ' unread' : ''}" data-ch-idx="${ch.index}">
       <div class="ch-item-icon">${icon}</div>
       <div class="ch-item-info">
         <div class="ch-item-name${unread ? ' unread' : ''}">${_esc(ch.name)}</div>

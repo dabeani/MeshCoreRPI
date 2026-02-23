@@ -116,17 +116,17 @@
       <section id="tab-stats" class="tab-pane" role="tabpanel">
         <div class="panel">
           <div class="panel-header">
-            <h2>Received Packet Types</h2>
+            <h2>Packet Header Breakdown</h2>
             <span id="pktstats-total" class="muted-txt"></span>
           </div>
-          <div class="pktstats-legend">
-            <span class="pktstats-legend-item"><span class="pktstats-dot c1"></span>Packet RX</span>
-            <span class="pktstats-legend-item"><span class="pktstats-dot c2"></span>Advert</span>
-            <span class="pktstats-legend-item"><span class="pktstats-dot c3"></span>Direct Message</span>
-            <span class="pktstats-legend-item"><span class="pktstats-dot c4"></span>Channel Message</span>
-            <span class="pktstats-legend-item"><span class="pktstats-dot c5"></span>Other RX</span>
+          <div class="pktstats-group">
+            <h3>Routing Type (Bits 0-1)</h3>
+            <div id="pktstats-routing-bars" class="pktstats-list"></div>
           </div>
-          <div id="pktstats-bars" class="pktstats-list"></div>
+          <div class="pktstats-group mt-14">
+            <h3>Payload Type (Bits 2-5)</h3>
+            <div id="pktstats-payload-bars" class="pktstats-list"></div>
+          </div>
         </div>
       </section><!-- /stats -->
 
