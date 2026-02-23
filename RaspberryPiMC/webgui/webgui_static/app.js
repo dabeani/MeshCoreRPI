@@ -25,6 +25,8 @@ const app = {
   dmMsgCounts: {},           // pubkey_prefix -> last rendered DM count
   dmScrollPos: {},           // pubkey_prefix -> last saved scrollTop
   dmEverViewed: {},          // pubkey_prefix -> bool
+  rxlogLiveScroll: false,    // whether RxLog live scroll is enabled
+  rxlogInterval: null,       // interval ID for live scroll
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
@@ -156,6 +158,9 @@ async function refreshRxLog() {
   const d = await sendCommand('rxlog', { lines });
   if (d?.ok) {
     out.textContent = d.payload?.text ?? '';
+    if (app.rxlogLiveScroll) {
+      out.scrollTop = out.scrollHeight;
+    }
   } else {
     out.textContent = `Error: ${d?.error || 'rxlog failed'}`;
   }
@@ -1419,6 +1424,18 @@ function wireUi() {
   });
 
   document.getElementById('btn-rxlog-refresh')?.addEventListener('click', refreshRxLog);
+
+  document.getElementById('rxlog-live-scroll')?.addEventListener('change', e => {
+    app.rxlogLiveScroll = e.target.checked;
+    if (app.rxlogLiveScroll) {
+      app.rxlogInterval = setInterval(refreshRxLog, 2000); // refresh every 2 seconds
+    } else {
+      if (app.rxlogInterval) {
+        clearInterval(app.rxlogInterval);
+        app.rxlogInterval = null;
+      }
+    }
+  });
 
   // Config: delegated set-button click from grouped param display
   document.getElementById('config-groups')?.addEventListener('click', e => {
