@@ -13,7 +13,7 @@ const app = {
   contactTypeFilter: 'all',
   logTypeFilter: 'all',
   activeChannel: null,       // currently selected channel index (number|null)
-  unreadChannels: new Set(), // channel indices with unread messages
+  unreadChannelCounts: {},   // channel_idx -> unread message count
   lastMsgCount: 0,           // track when new messages arrive
   lastPingTs: 0,             // ts of last event processed for map pings
   chMsgCounts: {},           // channel_idx -> last rendered message count
@@ -137,9 +137,8 @@ function switchTab(tabName) {
     renderMessages(app.snap);
   }
   if (tabName === 'channels' && app.snap) {
-    app.unreadChannels.clear();
-    updateChannelBadge();
     renderChannels(app.snap);
+    updateChannelBadge();
   }
   if (tabName === 'config' && app.snap?.role === 'repeater' && !app.configLoaded) {
     loadRepeaterConfig();
@@ -947,7 +946,7 @@ function updateDmBadge() {
 function updateChannelBadge() {
   const badge = document.getElementById('ch-tab-badge');
   if (!badge) return;
-  const count = app.unreadChannels.size;
+  const count = Object.values(app.unreadChannelCounts || {}).reduce((sum, n) => sum + (Number(n) || 0), 0);
   badge.textContent = count;
   badge.style.display = count ? '' : 'none';
 }
@@ -1099,7 +1098,8 @@ function renderChannels(snap) {
   // Render sidebar list
   listEl.innerHTML = channels.map(ch => {
     const isActive  = ch.index === app.activeChannel;
-    const unread    = app.unreadChannels.has(ch.index);
+    const unreadCount = app.unreadChannelCounts[ch.index] || 0;
+    const unread = unreadCount > 0;
     const chMsgs    = messages.filter(m => m.msg_type === 'channel' && m.channel_idx === ch.index);
     const last      = chMsgs[chMsgs.length - 1];
     const lastText  = last ? last.text.slice(0, 28) + (last.text.length > 28 ? '…' : '') : 'No messages yet';
@@ -1107,10 +1107,10 @@ function renderChannels(snap) {
     return `<li class="ch-list-item${isActive ? ' active' : ''}" data-ch-idx="${ch.index}">
       <div class="ch-item-icon">${icon}</div>
       <div class="ch-item-info">
-        <div class="ch-item-name">${_esc(ch.name)}</div>
+        <div class="ch-item-name${unread ? ' unread' : ''}">${_esc(ch.name)}</div>
         <div class="ch-item-sub">${_esc(lastText)}</div>
       </div>
-      ${unread ? `<div class="ch-item-badge">${unread}</div>` : ''}
+      ${unread ? `<div class="ch-item-badge">${unreadCount}</div>` : ''}
     </li>`;
   }).join('');
 
@@ -1421,8 +1421,11 @@ function renderAll(snap) {
   if (msgs.length > app.lastMsgCount) {
     const newMsgs = msgs.slice(app.lastMsgCount);
     newMsgs.forEach(m => {
-      if (m.msg_type === 'channel' && !m.outbound && app.activeTab !== 'channels') {
-        app.unreadChannels.add(m.channel_idx);
+      if (m.msg_type === 'channel' && !m.outbound) {
+        const isCurrentlyViewed = app.activeTab === 'channels' && app.activeChannel === m.channel_idx;
+        if (!isCurrentlyViewed) {
+          app.unreadChannelCounts[m.channel_idx] = (app.unreadChannelCounts[m.channel_idx] || 0) + 1;
+        }
       }
       if (m.msg_type === 'contact' && !m.outbound && app.activeTab !== 'messages') {
         app.unreadDms.add(m.pubkey_prefix);
@@ -1753,7 +1756,7 @@ function wireUi() {
     if (!item) return;
     const idx = parseInt(item.dataset.chIdx, 10);
     app.activeChannel = idx;
-    app.unreadChannels.delete(idx);
+    delete app.unreadChannelCounts[idx];
     updateChannelBadge();
     if (app.snap) renderChannels(app.snap);
   });

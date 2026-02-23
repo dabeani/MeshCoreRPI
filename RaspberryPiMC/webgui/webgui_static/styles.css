@@ -505,6 +505,7 @@ body[data-role="repeater"]  .tab-pane.repeater-only.active  { display: block; }
 }
 .ch-item-info { flex: 1; min-width: 0; }
 .ch-item-name { font-weight: 600; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-item-name.unread { font-weight: 800; }
 .ch-item-sub  { font-size: 11px; color: var(--muted); margin-top: 1px; }
 .ch-item-badge {
   min-width: 18px; height: 18px; padding: 0 5px;

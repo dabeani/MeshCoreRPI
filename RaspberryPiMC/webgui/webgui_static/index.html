@@ -37,6 +37,7 @@
         <span id="conn-badge" class="badge err" title="Connection status">–</span>
         <button id="btn-advert">Advert</button>
         <button id="btn-sync-time">Sync Time</button>
+        <button id="btn-clear-stats">Clear Stats</button>
         <button id="btn-refresh">Refresh</button>
       </div>
     </header>
@@ -73,25 +74,6 @@
 
           <!-- Side panel (right) -->
           <div class="dash-side">
-            <!-- Quick actions -->
-            <div class="panel mb-14">
-              <div class="panel-header"><h2>Quick Actions</h2></div>
-              <div class="inline-actions mb-8">
-                <button id="btn-mode-fwd" class="repeater-only btn-ok">&#9654; Forward</button>
-                <button id="btn-mode-mon" class="repeater-only btn-warn">&#9646;&#9646; Monitor</button>
-                <button id="btn-clear-stats">Clear Stats</button>
-              </div>
-              <form id="name-form" class="row-form mb-8">
-                <input name="name" placeholder="Set node name…" maxlength="31" />
-                <button type="submit">Set</button>
-              </form>
-              <form id="loc-form" class="row-form-3 mb-8">
-                <input name="lat" placeholder="Lat" type="number" step="0.000001" />
-                <input name="lon" placeholder="Lon" type="number" step="0.000001" />
-                <button type="submit">Set Location</button>
-              </form>
-            </div>
-
             <!-- System / hardware stats + graphs -->
             <div class="panel">
               <div class="panel-header">
