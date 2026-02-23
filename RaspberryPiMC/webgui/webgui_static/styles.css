@@ -272,25 +272,6 @@ select:focus { outline: none; border-color: var(--accent); }
 
 /* ─────────────── Logs Tab ─────────────── */
 .log-container { max-height: calc(100vh - 200px); overflow-y: auto; }
-.log-table th, .log-table td { padding: 6px 10px; }
-.log-type-badge {
-  display: inline-block; padding: 1px 7px; border-radius: 99px;
-  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
-  background: rgba(88,166,255,.15); color: var(--accent);
-}
-.log-type-badge.err   { background: rgba(255,107,107,.15); color: var(--err); }
-.log-type-badge.cfg   { background: rgba(46,204,113,.12);  color: var(--ok); }
-.log-type-badge.warn  { background: rgba(244,196,48,.12);  color: var(--warn); }
-.log-type-badge.rx    { background: rgba(88,166,255,.18);  color: #6fc5ff; }
-.log-type-badge.tx    { background: rgba(46,204,113,.18);  color: #60edab; }
-.log-type-badge.adv   { background: rgba(176,107,255,.15); color: #c490ff; }
-.log-dir { font-size: 13px; font-weight: 700; }
-.log-dir.rx { color: #6fc5ff; }
-.log-dir.tx { color: #60edab; }
-.log-node-cell { font-size: 11px; max-width: 160px; white-space: nowrap; overflow: hidden; }
-.log-node-name { display: block; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
-.log-node-key  { display: block; font-family: monospace; font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
-.log-node-ch   { font-size: 11px; color: var(--accent); font-weight: 600; }
 
 .rxlog-box { max-height: calc(100vh - 260px); }
 .combined-log-box { max-height: calc(100vh - 230px); }

@@ -11,7 +11,6 @@ const app = {
   mapFitted: false,
   activeTab: 'dashboard',
   contactTypeFilter: 'all',
-  logTypeFilter: 'all',
   activeChannel: null,       // currently selected channel index (number|null)
   unreadChannelCounts: {},   // channel_idx -> unread message count
   lastMsgCount: 0,           // track when new messages arrive
@@ -886,7 +885,7 @@ function _renderLogLegacyNoop() {
   const tbody = document.getElementById('log-body');
   if (!tbody) return;
 
-  const catFilter = app.logTypeFilter;
+  const catFilter = 'all';
   const categoryMatches = type => {
     if (catFilter === 'all')    return true;
     if (catFilter === 'pkt')    return type === 'pkt_rx' || type === 'pkt_tx';
@@ -1578,7 +1577,7 @@ function renderAll(snap) {
     renderPacketStats(app.headerStats);
   }
   if (app.activeTab === 'contacts') renderContacts(snap, document.getElementById('contact-search')?.value || '');
-  if (app.activeTab === 'logs')     renderLog(snap.events || [], document.getElementById('log-filter')?.value || '');
+  if (app.activeTab === 'logs')     renderCombinedLog();
   if (app.activeTab === 'channels') renderChannels(snap);
   if (app.activeTab === 'messages') renderMessages(snap);
 
