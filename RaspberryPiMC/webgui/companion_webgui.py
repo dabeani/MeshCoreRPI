@@ -682,11 +682,13 @@ class CompanionClient:
     def _parse_self_info(self, payload: bytes) -> None:
         if len(payload) < 58:
             return
+        public_key_hex = payload[4:36].hex()
         info = {
             "adv_type": payload[1],
             "tx_power": payload[2],
             "max_tx_power": payload[3],
-            "public_key": payload[4:36].hex(),
+            "public_key": public_key_hex,
+            "pubkey": public_key_hex,
             "adv_lat": struct.unpack_from("<i", payload, 36)[0] / 1_000_000.0,
             "adv_lon": struct.unpack_from("<i", payload, 40)[0] / 1_000_000.0,
             "multi_acks": payload[44],
@@ -1096,6 +1098,7 @@ class RepeaterClient:
         lat_raw  = self.send_cli_command("get lat")
         lon_raw  = self.send_cli_command("get lon")
         freq_raw = self.send_cli_command("get freq")  # returns MHz
+        pubkey_raw = self.send_cli_command("get public.key")
 
         current = dict(self.state.self_info)
         current["name"] = name_raw.strip() or current.get("name", "")
@@ -1108,6 +1111,10 @@ class RepeaterClient:
             current["adv_lon"] = lon_v
         if freq_v is not None and freq_v > 0:
             current["radio_freq_khz"] = int(freq_v * 1000)  # MHz → kHz
+        pubkey_match = re.search(r"([0-9a-fA-F]{64})", pubkey_raw)
+        if pubkey_match:
+            current["pubkey"] = pubkey_match.group(1).lower()
+            current["public_key"] = current["pubkey"]
         self.state.self_info = current
 
     def refresh(self, full: bool = False) -> None:

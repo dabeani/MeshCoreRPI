@@ -1633,9 +1633,10 @@ function renderAll(snap) {
   if (infoEl) {
     const si = snap.self_info  || {};
     const di = snap.device_info || {};
+    const selfPubkey = si.pubkey || si.public_key || di.pubkey || di.public_key || '–';
     infoEl.textContent = [
       `Name     : ${si.name    || '–'}`,
-      `Pubkey   : ${si.pubkey  ? si.pubkey.slice(0, 24) + '…' : '–'}`,
+      `Pubkey   : ${selfPubkey}`,
       `Model    : ${di.model   || '–'}`,
       `Firmware : ${di.version || '–'}`,
       `Freq     : ${si.radio_freq_khz  ? (si.radio_freq_khz / 1000).toFixed(3) + ' MHz' : '–'}`,
