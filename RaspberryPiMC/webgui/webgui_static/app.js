@@ -610,6 +610,13 @@ function pingMarker(pubkeyOrPrefix) {
 }
 
 function updateMap(snap) {
+  let popupKeyToRestore = null;
+  markerLayer.eachLayer(layer => {
+    if (typeof layer.isPopupOpen === 'function' && layer.isPopupOpen() && layer._mcPopupKey) {
+      popupKeyToRestore = layer._mcPopupKey;
+    }
+  });
+
   markerLayer.clearLayers();
   lineLayer.clearLayers();
   Object.keys(markerByPubkey).forEach(k => delete markerByPubkey[k]);
@@ -622,6 +629,7 @@ function updateMap(snap) {
                     (Math.abs(selfLat) > 0.0001 || Math.abs(selfLon) > 0.0001);
   if (selfOnMap) {
     const m = L.marker([selfLat, selfLon], { icon: markerIconForKind(null, true), zIndexOffset: 100 });
+    m._mcPopupKey = '__self__';
     m.bindPopup(
       `<div style="min-width:160px"><b>${si.name || 'This Node'}</b><br>` +
       `<span style="color:#58a6ff">Self (${snap.role || 'unknown'})</span><br>` +
@@ -629,6 +637,9 @@ function updateMap(snap) {
       { autoClose: false, closeOnClick: false }
     );
     m.addTo(markerLayer);
+    if (popupKeyToRestore === '__self__') {
+      m.openPopup();
+    }
     bounds.push([selfLat, selfLon]);
   }
 
@@ -642,6 +653,7 @@ function updateMap(snap) {
     if (!hasLoc(c)) continue;
     onMap++;
     const m = L.marker([c.lat, c.lon], { icon: markerIconForKind(k, false) });
+    m._mcPopupKey = c.pubkey;
     const hops = c.out_path_len;
     const hopStr = (hops === 0 || hops === null || hops === undefined)
       ? 'Direct' : (hops < 255 ? `${hops} hop${hops !== 1 ? 's' : ''}` : '–');
@@ -656,6 +668,9 @@ function updateMap(snap) {
     );
     m.addTo(markerLayer);
     markerByPubkey[c.pubkey] = m;
+    if (popupKeyToRestore && popupKeyToRestore === c.pubkey) {
+      m.openPopup();
+    }
     bounds.push([c.lat, c.lon]);
 
     // Draw path polyline from self to contact (only when we know self pos)
