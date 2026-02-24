@@ -153,26 +153,85 @@
         <div class="panel">
           <div class="panel-header">
             <h2>Contacts &amp; Neighbors</h2>
-            <input id="contact-search" class="search-input" placeholder="Search name / key…" />
+            <div class="contacts-toolbar">
+              <input id="contact-search" class="search-input" placeholder="Search name / key…" />
+              <select id="contact-sort" class="contact-sort" title="Sort contacts">
+                <option value="last_seen_desc">Last Seen ↓</option>
+                <option value="name_asc">Name A→Z</option>
+                <option value="snr_desc">SNR ↓</option>
+                <option value="hops_asc">Hops ↑</option>
+              </select>
+            </div>
           </div>
-          <div class="type-filter-bar">
-            <button class="type-btn active" data-kind="all">All</button>
-            <button class="type-btn" data-kind="1">Clients</button>
-            <button class="type-btn" data-kind="2">Repeaters</button>
-            <button class="type-btn" data-kind="3">Servers</button>
-            <button class="type-btn" data-kind="4">Sensors</button>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th><th>Type</th><th>Public Key</th>
-                  <th>Location</th><th>SNR</th><th>Path / Hops</th>
-                  <th>Last Seen</th><th>Action</th>
-                </tr>
-              </thead>
-              <tbody id="contacts-body"></tbody>
-            </table>
+
+          <div class="contacts-grid">
+            <div class="contacts-box panel">
+              <div class="panel-header contacts-box-head">
+                <h3>Repeaters</h3>
+                <span id="contacts-count-2" class="muted-txt">0</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th><th>Public Key</th><th>Location</th><th>SNR</th><th>Path / Hops</th><th>Last Seen</th><th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="contacts-body-2"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="contacts-box panel">
+              <div class="panel-header contacts-box-head">
+                <h3>Clients</h3>
+                <span id="contacts-count-1" class="muted-txt">0</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th><th>Public Key</th><th>Location</th><th>SNR</th><th>Path / Hops</th><th>Last Seen</th><th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="contacts-body-1"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="contacts-box panel">
+              <div class="panel-header contacts-box-head">
+                <h3>Servers</h3>
+                <span id="contacts-count-3" class="muted-txt">0</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th><th>Public Key</th><th>Location</th><th>SNR</th><th>Path / Hops</th><th>Last Seen</th><th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="contacts-body-3"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="contacts-box panel">
+              <div class="panel-header contacts-box-head">
+                <h3>Sensors</h3>
+                <span id="contacts-count-4" class="muted-txt">0</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th><th>Public Key</th><th>Location</th><th>SNR</th><th>Path / Hops</th><th>Last Seen</th><th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="contacts-body-4"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       </section><!-- /contacts -->

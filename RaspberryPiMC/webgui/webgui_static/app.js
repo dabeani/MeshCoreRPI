@@ -10,7 +10,7 @@ const app = {
   configLoaded: false,
   mapFitted: false,
   activeTab: 'dashboard',
-  contactTypeFilter: 'all',
+  contactSort: 'last_seen_desc',
   activeChannel: null,       // currently selected channel index (number|null)
   unreadChannelCounts: {},   // channel_idx -> unread message count
   lastMsgCount: 0,           // track when new messages arrive
@@ -867,59 +867,74 @@ function renderCharts(snap) {
 
 // ─── Contacts Table ──────────────────────────────────
 function renderContacts(snap, filter = '') {
-  const role = snap.role || 'companion';
-  const kindFilter = app.contactTypeFilter;
-
-  // Update button counts
   const allContacts = snap.contacts || [];
-  const kindMap = { '1': 0, '2': 0, '3': 0, '4': 0 };
-  for (const c of allContacts) kindMap[String(c.kind || 1)]++;
-  document.querySelectorAll('.type-btn[data-kind]').forEach(btn => {
-    const k = btn.dataset.kind;
-    if (k === 'all') btn.textContent = `All (${allContacts.length})`;
-    else btn.textContent = {
-      '1': `Clients (${kindMap['1']})`,
-      '2': `Repeaters (${kindMap['2']})`,
-      '3': `Servers (${kindMap['3']})`,
-      '4': `Sensors (${kindMap['4']})`,
-    }[k] || k;
+  const q = (filter || '').toLowerCase().trim();
+
+  const visible = allContacts.filter(c => {
+    if (!q) return true;
+    return (c.name || '').toLowerCase().includes(q) || (c.pubkey || '').toLowerCase().includes(q);
   });
 
-  const contacts = allContacts.filter(c => {
-    if (kindFilter !== 'all' && String(c.kind || 1) !== kindFilter) return false;
-    if (!filter) return true;
-    const q = filter.toLowerCase();
-    return (c.name || '').toLowerCase().includes(q) || c.pubkey.toLowerCase().includes(q);
+  const sortMode = app.contactSort || 'last_seen_desc';
+  const sorted = [...visible].sort((a, b) => {
+    const nameA = (a.name || '').toLowerCase();
+    const nameB = (b.name || '').toLowerCase();
+    const snrA = Number.isFinite(a.snr) ? a.snr : -9999;
+    const snrB = Number.isFinite(b.snr) ? b.snr : -9999;
+    const hopsA = (a.out_path_len == null || a.out_path_len >= 255) ? 999 : a.out_path_len;
+    const hopsB = (b.out_path_len == null || b.out_path_len >= 255) ? 999 : b.out_path_len;
+    const seenA = Number(a.last_advert_timestamp || 0);
+    const seenB = Number(b.last_advert_timestamp || 0);
+
+    if (sortMode === 'name_asc') return nameA.localeCompare(nameB) || (a.pubkey || '').localeCompare(b.pubkey || '');
+    if (sortMode === 'snr_desc') return (snrB - snrA) || (seenB - seenA);
+    if (sortMode === 'hops_asc') return (hopsA - hopsB) || (seenB - seenA);
+    return (seenB - seenA) || nameA.localeCompare(nameB);
   });
 
-  const tbody = document.getElementById('contacts-body');
-  if (!tbody) return;
-  if (!contacts.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No contacts found</td></tr>`;
-    return;
+  const byKind = {
+    2: [], // Repeaters
+    1: [], // Clients
+    3: [], // Servers
+    4: [], // Sensors
+  };
+  for (const c of sorted) {
+    const kind = Number(c.kind || 1);
+    if (byKind[kind]) byKind[kind].push(c);
   }
-  tbody.innerHTML = contacts.slice(0, 250).map(c => {
-    const loc    = hasLoc(c) ? `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}` : '–';
-    const hops   = c.out_path_len;
-    const hopStr = (hops === 0) ? 'Direct'
-                 : (hops > 0 && hops < 255) ? `${hops} hop${hops !== 1 ? 's' : ''}` : '–';
-    const snrStr = c.snr != null ? `${c.snr} dB` : '–';
-    const kind   = contactKindStr(c.kind, role);
-    const locateBtn = hasLoc(c)
-      ? `<button class="btn-sm" onclick="locateContact(${c.lat.toFixed(6)},${c.lon.toFixed(6)})">MAP</button>`
-      : '';
-    const removeBtn = `<button class="btn-sm btn-err" onclick="removeContact('${c.pubkey}')">Delete</button>`;
-    return `<tr>
-      <td>${c.name || '–'}</td>
-      <td>${kind}</td>
-      <td title="${c.pubkey}" style="font-family:monospace;font-size:11px">${c.pubkey.slice(0, 16)}…</td>
-      <td>${loc}</td>
-      <td>${snrStr}</td>
-      <td>${hopStr}</td>
-      <td>${fmtTime(c.last_advert_timestamp)}</td>
-      <td style="white-space:nowrap">${locateBtn}${removeBtn ? ' ' + removeBtn : ''}</td>
-    </tr>`;
-  }).join('');
+
+  const renderRows = contacts => {
+    if (!contacts.length) {
+      return `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:14px">No contacts</td></tr>`;
+    }
+    return contacts.slice(0, 250).map(c => {
+      const loc = hasLoc(c) ? `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}` : '–';
+      const hops = c.out_path_len;
+      const hopStr = (hops === 0) ? 'Direct'
+                   : (hops > 0 && hops < 255) ? `${hops} hop${hops !== 1 ? 's' : ''}` : '–';
+      const snrStr = c.snr != null ? `${c.snr} dB` : '–';
+      const locateBtn = hasLoc(c)
+        ? `<button class="btn-sm" onclick="locateContact(${c.lat.toFixed(6)},${c.lon.toFixed(6)})">MAP</button>`
+        : '';
+      const removeBtn = `<button class="btn-sm btn-err" onclick="removeContact('${c.pubkey}')">Delete</button>`;
+      return `<tr>
+        <td>${c.name || '–'}</td>
+        <td title="${c.pubkey}" style="font-family:monospace;font-size:11px">${c.pubkey.slice(0, 16)}…</td>
+        <td>${loc}</td>
+        <td>${snrStr}</td>
+        <td>${hopStr}</td>
+        <td>${fmtTime(c.last_advert_timestamp)}</td>
+        <td style="white-space:nowrap">${locateBtn}${removeBtn ? ' ' + removeBtn : ''}</td>
+      </tr>`;
+    }).join('');
+  };
+
+  [2, 1, 3, 4].forEach(kind => {
+    const tbody = document.getElementById(`contacts-body-${kind}`);
+    const count = document.getElementById(`contacts-count-${kind}`);
+    if (count) count.textContent = String((byKind[kind] || []).length);
+    if (tbody) tbody.innerHTML = renderRows(byKind[kind] || []);
+  });
 }
 
 async function removeContact(pubkey) {
@@ -1843,17 +1858,14 @@ function wireUi() {
     e.target.reset();
   });
 
-  // Contacts search + type filter buttons
+  // Contacts search + sorting
   document.getElementById('contact-search')?.addEventListener('input', e => {
     if (app.snap) renderContacts(app.snap, e.target.value);
   });
-  document.querySelectorAll('.type-btn[data-kind]').forEach(btn =>
-    btn.addEventListener('click', () => {
-      app.contactTypeFilter = btn.dataset.kind;
-      document.querySelectorAll('.type-btn[data-kind]').forEach(b => b.classList.toggle('active', b === btn));
-      if (app.snap) renderContacts(app.snap, document.getElementById('contact-search')?.value || '');
-    })
-  );
+  document.getElementById('contact-sort')?.addEventListener('change', e => {
+    app.contactSort = String(e.target?.value || 'last_seen_desc');
+    if (app.snap) renderContacts(app.snap, document.getElementById('contact-search')?.value || '');
+  });
 
   // Log filter + log type filter buttons
   document.getElementById('log-filter')?.addEventListener('input', () => renderCombinedLog());

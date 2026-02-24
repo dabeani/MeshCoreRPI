@@ -731,8 +731,9 @@ void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32
                           const uint8_t *app_data, size_t app_data_len) {
   mesh::Mesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len); // chain to super impl
 
-  // if this a zero hop advert (and not via 'Share'), add it to neighbours
-  if (packet->path_len == 0 && !isShare(packet)) {
+  // Keep adverts from all node types, including flooded adverts (not only zero-hop).
+  // Ignore synthetic Share-routed adverts.
+  if (!isShare(packet)) {
     AdvertDataParser parser(app_data, app_data_len);
     if (parser.isValid() && parser.getType() != ADV_TYPE_NONE) {
       putNeighbour(id, timestamp, packet->getSNR(), &parser);

@@ -360,6 +360,33 @@ body[data-role="repeater"]  .tab-pane.repeater-only.active  { display: block; }
 .muted-txt { color: var(--muted); font-size: 12px; }
 .search-input { width: 180px; }
 
+.contacts-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.contact-sort { min-width: 140px; }
+.contacts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.contacts-box {
+  padding: 10px;
+}
+.contacts-box-head {
+  margin-bottom: 8px;
+}
+.contacts-box .table-wrap {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.contacts-box table th,
+.contacts-box table td {
+  padding: 7px 8px;
+  font-size: 12px;
+}
+
 /* ─────────────── Leaflet overrides ─────────────── */
 .leaflet-container { font-family: inherit; }
 .leaflet-popup-content-wrapper {
@@ -460,6 +487,7 @@ body[data-role="repeater"]  .tab-pane.repeater-only.active  { display: block; }
   .chart-grid { grid-template-columns: 1fr; }
   .chart-wide { grid-column: span 1; }
   .stat-grid  { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  .contacts-grid { grid-template-columns: 1fr; }
   #map { height: 320px; }
   .cfg-param-row { grid-template-columns: 1fr auto; }
   .cfg-param-value { display: none; }
