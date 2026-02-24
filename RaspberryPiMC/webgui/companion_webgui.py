@@ -562,6 +562,7 @@ class CompanionClient:
         self.recv_buf = bytearray()
         self.send_lock = threading.Lock()
         self.stop_event = threading.Event()
+        self._seen_connected_once = False
         self.on_connected = on_connected
         self._was_connected = False
         self._pending_ack_ids: list[str] = []  # msg_ids awaiting RESP_CODE_MSG_SENT
@@ -1557,9 +1558,30 @@ class App:
         return result
 
     def _on_client_connected(self) -> None:
+        if self._seen_connected_once:
+            self._reset_statistics_after_reconnect()
+        else:
+            self._seen_connected_once = True
+
         if not _to_bool(self.settings.get("auto_sync_time", False)):
             return
         self._sync_time_from_rpi(source="connect")
+
+    def _reset_statistics_after_reconnect(self) -> None:
+        with self.state._lock:
+            self.state.stats = {"core": {}, "radio": {}, "packets": {}}
+            self.state.battery = {}
+            for key in self.state.history.keys():
+                self.state.history[key] = []
+
+        if isinstance(self.client, RepeaterClient):
+            self.client._prev_rx = 0
+            self.client._prev_tx = 0
+
+        # Reset packet-log based statistics as well.
+        self._clear_log_history()
+        self.state.add_event("stats_reset", {"reason": "reconnect"})
+        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
 
     def _clear_log_history(self) -> None:
         for p in _packet_log_candidate_paths():
