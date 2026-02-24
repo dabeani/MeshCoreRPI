@@ -66,6 +66,11 @@ struct NeighbourInfo {
   uint32_t advert_timestamp;
   uint32_t heard_timestamp;
   int8_t snr; // multiplied by 4, user should divide to get float value
+  uint8_t advert_type;
+  char advert_name[32];
+  int32_t advert_lat_e6;
+  int32_t advert_lon_e6;
+  uint8_t has_advert_loc;
 };
 
 #ifndef FIRMWARE_BUILD_DATE
@@ -115,7 +120,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   ESPNowBridge bridge;
 #endif
 
-  void putNeighbour(const mesh::Identity& id, uint32_t timestamp, float snr);
+  void putNeighbour(const mesh::Identity& id, uint32_t timestamp, float snr, const AdvertDataParser* parser = nullptr);
   uint8_t handleLoginReq(const mesh::Identity& sender, const uint8_t* secret, uint32_t sender_timestamp, const uint8_t* data, bool is_flood);
   uint8_t handleAnonRegionsReq(const mesh::Identity& sender, uint32_t sender_timestamp, const uint8_t* data);
   uint8_t handleAnonOwnerReq(const mesh::Identity& sender, uint32_t sender_timestamp, const uint8_t* data);

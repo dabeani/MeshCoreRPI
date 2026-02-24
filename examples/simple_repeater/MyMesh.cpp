@@ -148,7 +148,7 @@ bool getLinuxMemoryUsage(float& mem_usage_pct) {
 }
 #endif
 
-void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float snr) {
+void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float snr, const AdvertDataParser* parser) {
 #if MAX_NEIGHBOURS // check if neighbours enabled
   // find existing neighbour, else use least recently updated
   uint32_t oldest_timestamp = 0xFFFFFFFF;
@@ -172,6 +172,23 @@ void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float sn
   neighbour->advert_timestamp = timestamp;
   neighbour->heard_timestamp = getRTCClock()->getCurrentTime();
   neighbour->snr = (int8_t)(snr * 4);
+  neighbour->advert_type = ADV_TYPE_NONE;
+  neighbour->advert_name[0] = 0;
+  neighbour->advert_lat_e6 = 0;
+  neighbour->advert_lon_e6 = 0;
+  neighbour->has_advert_loc = 0;
+
+  if (parser && parser->isValid()) {
+    neighbour->advert_type = parser->getType();
+    if (parser->hasName()) {
+      StrHelper::strncpy(neighbour->advert_name, parser->getName(), sizeof(neighbour->advert_name));
+    }
+    if (parser->hasLatLon()) {
+      neighbour->advert_lat_e6 = parser->getIntLat();
+      neighbour->advert_lon_e6 = parser->getIntLon();
+      neighbour->has_advert_loc = 1;
+    }
+  }
 #endif
 }
 
@@ -717,8 +734,8 @@ void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32
   // if this a zero hop advert (and not via 'Share'), add it to neighbours
   if (packet->path_len == 0 && !isShare(packet)) {
     AdvertDataParser parser(app_data, app_data_len);
-    if (parser.isValid() && parser.getType() == ADV_TYPE_REPEATER) { // just keep neigbouring Repeaters
-      putNeighbour(id, timestamp, packet->getSNR());
+    if (parser.isValid() && parser.getType() != ADV_TYPE_NONE) {
+      putNeighbour(id, timestamp, packet->getSNR(), &parser);
     }
   }
 }
@@ -1073,7 +1090,16 @@ void MyMesh::formatNeighborsReply(char *reply) {
 
     // add next neighbour
     uint32_t secs_ago = getRTCClock()->getCurrentTime() - neighbour->heard_timestamp;
-    sprintf(dp, "%s:%d:%d", hex, secs_ago, neighbour->snr);
+    const char *name = neighbour->advert_name;
+    if (!name || !name[0]) name = "";
+
+    if (neighbour->has_advert_loc) {
+      const double lat = ((double)neighbour->advert_lat_e6) / 1000000.0;
+      const double lon = ((double)neighbour->advert_lon_e6) / 1000000.0;
+      sprintf(dp, "%s:%d:%d:%d:%s:%.6f:%.6f", hex, secs_ago, neighbour->snr, (int)neighbour->advert_type, name, lat, lon);
+    } else {
+      sprintf(dp, "%s:%d:%d:%d:%s", hex, secs_ago, neighbour->snr, (int)neighbour->advert_type, name);
+    }
     while (*dp)
       dp++; // find end of string
   }
