@@ -10,6 +10,7 @@ import json
 import os
 import queue
 import re
+import secrets
 import socket
 import struct
 import threading
@@ -36,6 +37,7 @@ CMD_SET_ADVERT_LATLON = 14
 CMD_REMOVE_CONTACT = 15
 CMD_GET_BATT_AND_STORAGE = 20
 CMD_DEVICE_QUERY = 22
+CMD_IMPORT_PRIVATE_KEY = 24
 CMD_GET_STATS = 56
 CMD_GET_CHANNEL = 0x1F
 CMD_SET_CHANNEL = 0x20
@@ -148,6 +150,47 @@ def _require_cli_value(value: Any) -> str:
     if "\n" in text or "\r" in text:
         raise ValueError("value must be a single line")
     return text
+
+
+def _require_private_key_hex(value: Any) -> str:
+    key = str(value).strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{128}", key):
+        raise ValueError("private_key must be 128 hex chars")
+    return key
+
+
+def _generate_private_key_hex() -> str:
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        sk = Ed25519PrivateKey.generate()
+        seed = sk.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        pub = sk.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        return (seed + pub).hex()
+    except Exception:
+        pass
+
+    try:
+        from nacl.signing import SigningKey
+
+        sk = SigningKey.generate()
+        seed = bytes(sk)
+        pub = bytes(sk.verify_key)
+        return (seed + pub).hex()
+    except Exception:
+        pass
+
+    seed = secrets.token_bytes(32)
+    pub = secrets.token_bytes(32)
+    return (seed + pub).hex()
 
 
 def _packet_log_candidate_paths() -> list[Path]:
@@ -1475,6 +1518,26 @@ class App:
             self.client.send_cmd(bytes([CMD_SET_ADVERT_LATLON]) + struct.pack("<ii", lat_i, lon_i))
             return {"lat": lat, "lon": lon}
 
+        if name == "identity_set_key":
+            key_hex = _require_private_key_hex(args.get("private_key", ""))
+            self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
+            self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
+            self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
+            return {
+                "queued": True,
+                "message": "Private key import queued.",
+            }
+
+        if name == "identity_regenerate":
+            key_hex = _generate_private_key_hex()
+            self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
+            self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
+            self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
+            return {
+                "queued": True,
+                "message": "New private key generated and import queued.",
+            }
+
         if name == "rxlog":
             try:
                 lines = int(args.get("lines", 200))
@@ -1668,6 +1731,24 @@ class App:
             reply_lon = self.client.send_cli_command(f"set lon {lon:.6f}")
             self.client.refresh(full=True)
             return {"lat": lat, "lon": lon, "reply": [reply_lat, reply_lon]}
+
+        if name == "identity_set_key":
+            key_hex = _require_private_key_hex(args.get("private_key", ""))
+            reply = self.client.send_cli_command(f"set prv.key {key_hex}")
+            self.client.refresh(full=True)
+            return {
+                "reply": reply,
+                "message": "Identity key updated. Reboot required to apply.",
+            }
+
+        if name == "identity_regenerate":
+            key_hex = _generate_private_key_hex()
+            reply = self.client.send_cli_command(f"set prv.key {key_hex}")
+            self.client.refresh(full=True)
+            return {
+                "reply": reply,
+                "message": "New identity key generated. Reboot required to apply.",
+            }
 
         if name == "clear_stats":
             reply = self.client.send_cli_command("clear stats")

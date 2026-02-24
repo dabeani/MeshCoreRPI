@@ -333,6 +333,21 @@
           </div>
 
         </div><!-- /repeater-only -->
+
+        <div class="panel mt-14">
+          <div class="panel-header">
+            <h2>Identity / Private Key</h2>
+            <div class="inline-actions">
+              <button id="btn-identity-regenerate" class="btn-err" type="button">Auto Regenerate</button>
+            </div>
+          </div>
+          <p class="form-hint">Set a specific private key (128 hex chars), or auto-generate a new one and apply it.</p>
+          <form id="identity-key-form" class="row-form mb-8">
+            <input name="private_key" placeholder="Private key (128 hex chars)" autocomplete="off" spellcheck="false" />
+            <button type="submit">Set Key</button>
+          </form>
+          <div id="identity-key-output" class="mono-box"></div>
+        </div>
       </section><!-- /config -->
 
 

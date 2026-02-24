@@ -1815,6 +1815,30 @@ function wireUi() {
     resizeTimer = setTimeout(() => adjustLogBoxSize(), 40);
   });
 
+  document.getElementById('identity-key-form')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const key = new FormData(e.target).get('private_key')?.trim().toLowerCase();
+    if (!/^[0-9a-f]{128}$/.test(key || '')) {
+      setOutput('identity-key-output', 'Invalid key format. Expected 128 hex chars.');
+      return;
+    }
+    const d = await sendCommand('identity_set_key', { private_key: key });
+    const payload = d?.payload || {};
+    setOutput('identity-key-output', d?.ok
+      ? (payload.message || payload.reply || 'Private key update queued.')
+      : `Error: ${d?.error || 'unknown'}`);
+    if (d?.ok) e.target.reset();
+  });
+
+  document.getElementById('btn-identity-regenerate')?.addEventListener('click', async () => {
+    if (!confirm('Generate and apply a new identity key now?')) return;
+    const d = await sendCommand('identity_regenerate');
+    const payload = d?.payload || {};
+    setOutput('identity-key-output', d?.ok
+      ? (payload.message || payload.reply || 'New key generated and queued.')
+      : `Error: ${d?.error || 'unknown'}`);
+  });
+
   // Config: delegated set-button click from grouped param display
   document.getElementById('config-groups')?.addEventListener('click', e => {
     const btn = e.target.closest('[data-config-set]');
