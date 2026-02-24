@@ -1674,6 +1674,12 @@ function renderAll(snap) {
     infoEls.forEach((el) => { el.textContent = infoText; });
   }
 
+  const autoSyncToggle = document.getElementById('auto-sync-time-toggle');
+  if (autoSyncToggle) {
+    const enabled = !!snap?.settings?.auto_sync_time;
+    autoSyncToggle.checked = enabled;
+  }
+
   // Events sidebar
   renderEvents(snap.events || []);
 
@@ -1807,6 +1813,19 @@ function wireUi() {
     if (app.rxlogLiveScroll) {
       adjustLogBoxSize({ keepBottom: true });
     }
+  });
+
+  document.getElementById('auto-sync-time-toggle')?.addEventListener('change', async e => {
+    const enabled = !!e.target.checked;
+    const d = await sendCommand('set_auto_sync_time', { enabled });
+    if (d?.ok) {
+      setOutput('auto-sync-time-output', enabled
+        ? '✓ Auto-Sync Time enabled. Device time will sync from Raspberry Pi on connect/boot.'
+        : 'Auto-Sync Time disabled.');
+      return;
+    }
+    setOutput('auto-sync-time-output', `Error: ${d?.error || 'unknown'}`);
+    e.target.checked = !enabled;
   });
 
   let resizeTimer = null;

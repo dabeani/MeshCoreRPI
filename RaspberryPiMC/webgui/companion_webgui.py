@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 _WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -404,6 +404,7 @@ class MeshState:
             "cpu": [],
             "mem": [],
         }
+        self.settings: dict[str, Any] = {}
 
     def set_connected(self, connected: bool) -> None:
         with self._lock:
@@ -481,7 +482,28 @@ class MeshState:
                 "regions": list(self.regions),
                 "events": list(self.events[-100:]),
                 "history": {k: list(v) for k, v in self.history.items()},
+                "settings": dict(self.settings),
             }
+
+
+def _settings_candidate_paths() -> list[Path]:
+    roots: list[Path] = []
+    env_root = os.getenv("MESHCORE_DATA_DIR", "").strip()
+    if env_root:
+        roots.append(Path(env_root))
+    roots.append(Path("/var/lib/raspberrypimc/userdata"))
+    roots.append(Path.cwd() / "RaspberryPiMC" / "userdata")
+    roots.append(Path(__file__).resolve().parent.parent / "userdata")
+    return [root / "webgui_settings.json" for root in roots]
+
+
+def _to_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value).strip().lower()
+    return text in ("1", "true", "yes", "on", "enabled")
 
 
 class EventBus:
@@ -510,7 +532,14 @@ class EventBus:
 
 
 class CompanionClient:
-    def __init__(self, host: str, port: int, state: MeshState, bus: EventBus) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        state: MeshState,
+        bus: EventBus,
+        on_connected: Callable[[], None] | None = None,
+    ) -> None:
         self.host = host
         self.port = port
         self.state = state
@@ -519,6 +548,8 @@ class CompanionClient:
         self.recv_buf = bytearray()
         self.send_lock = threading.Lock()
         self.stop_event = threading.Event()
+        self.on_connected = on_connected
+        self._was_connected = False
         self._pending_ack_ids: list[str] = []  # msg_ids awaiting RESP_CODE_MSG_SENT
 
     def _frame_out(self, payload: bytes) -> bytes:
@@ -912,7 +943,15 @@ class CompanionClient:
     def run(self) -> None:
         poll_counter = 0
         while not self.stop_event.is_set():
-            if self._connect():
+            is_connected = self._connect()
+            if is_connected and not self._was_connected and self.on_connected:
+                try:
+                    self.on_connected()
+                except Exception as ex:
+                    self.state.add_event("error", {"message": f"auto-sync hook failed: {ex}"})
+            self._was_connected = is_connected
+
+            if is_connected:
                 self._recv()
                 with self.state._lock:
                     last_frame_at = float(self.state.last_frame_at or 0.0)
@@ -964,7 +1003,14 @@ class CompanionClient:
 
 
 class RepeaterClient:
-    def __init__(self, host: str, port: int, state: MeshState, bus: EventBus) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        state: MeshState,
+        bus: EventBus,
+        on_connected: Callable[[], None] | None = None,
+    ) -> None:
         self.host = host
         self.port = port
         self.state = state
@@ -976,6 +1022,8 @@ class RepeaterClient:
         self._prev_rx: int = 0
         self._prev_tx: int = 0
         self._logging_started = False
+        self.on_connected = on_connected
+        self._was_connected = False
 
     def _close(self) -> None:
         if self.sock is not None:
@@ -1229,7 +1277,15 @@ class RepeaterClient:
         cycle = 0
         while not self.stop_event.is_set():
             try:
-                if self._connect():
+                is_connected = self._connect()
+                if is_connected and not self._was_connected and self.on_connected:
+                    try:
+                        self.on_connected()
+                    except Exception as ex:
+                        self.state.add_event("error", {"message": f"auto-sync hook failed: {ex}"})
+                self._was_connected = is_connected
+
+                if is_connected:
                     cycle += 1
                     self.refresh(full=(cycle % 12 == 1))
                     with self.state._lock:
@@ -1396,10 +1452,27 @@ class App:
         self.role = role
         self.state = MeshState(role)
         self.bus = EventBus()
+        self.settings: dict[str, Any] = {
+            "auto_sync_time": False,
+        }
+        self._load_settings()
+        self.state.settings = dict(self.settings)
         if role == "companion":
-            self.client: CompanionClient | RepeaterClient = CompanionClient(companion_host, companion_port, self.state, self.bus)
+            self.client: CompanionClient | RepeaterClient = CompanionClient(
+                companion_host,
+                companion_port,
+                self.state,
+                self.bus,
+                on_connected=self._on_client_connected,
+            )
         elif role == "repeater":
-            self.client = RepeaterClient(repeater_host, repeater_port, self.state, self.bus)
+            self.client = RepeaterClient(
+                repeater_host,
+                repeater_port,
+                self.state,
+                self.bus,
+                on_connected=self._on_client_connected,
+            )
         else:
             raise ValueError(f"unsupported role: {role}")
 
@@ -1407,6 +1480,51 @@ class App:
         self.bind_port = bind_port
         self.static_dir = static_dir
         self.stop_event = threading.Event()
+
+    def _load_settings(self) -> None:
+        for path in _settings_candidate_paths():
+            try:
+                if not path.exists() or not path.is_file():
+                    continue
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    if "auto_sync_time" in data:
+                        self.settings["auto_sync_time"] = _to_bool(data.get("auto_sync_time"))
+                return
+            except Exception:
+                continue
+
+    def _save_settings(self) -> None:
+        target = _settings_candidate_paths()[0]
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.settings, indent=2, sort_keys=True), encoding="utf-8")
+            tmp.replace(target)
+        except Exception:
+            pass
+
+    def _set_auto_sync_time(self, enabled: bool) -> None:
+        self.settings["auto_sync_time"] = bool(enabled)
+        self.state.settings = dict(self.settings)
+        self._save_settings()
+        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+
+    def _sync_time_from_rpi(self, source: str = "auto") -> None:
+        now = int(time.time())
+        if self.role == "companion":
+            assert isinstance(self.client, CompanionClient)
+            self.client.send_cmd(bytes([CMD_SET_DEVICE_TIME]) + struct.pack("<I", now))
+            self.state.add_event("sync_time_auto", {"epoch": now, "source": source})
+            return
+        assert isinstance(self.client, RepeaterClient)
+        reply = self.client.send_cli_command(f"time {now}")
+        self.state.add_event("sync_time_auto", {"epoch": now, "source": source, "reply": reply})
+
+    def _on_client_connected(self) -> None:
+        if not _to_bool(self.settings.get("auto_sync_time", False)):
+            return
+        self._sync_time_from_rpi(source="connect")
 
     def _clear_log_history(self) -> None:
         for p in _packet_log_candidate_paths():
@@ -1997,6 +2115,11 @@ class App:
         raise ValueError(f"unknown command: {name}")
 
     def command_handler(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        if name == "set_auto_sync_time":
+            enabled = _to_bool(args.get("enabled", False))
+            self._set_auto_sync_time(enabled)
+            return {"auto_sync_time": enabled}
+
         if self.role == "companion":
             return self._companion_command(name, args)
         return self._repeater_command(name, args)

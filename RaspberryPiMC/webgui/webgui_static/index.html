@@ -336,6 +336,17 @@
 
         <div class="panel mt-14">
           <div class="panel-header">
+            <h2>Time Sync</h2>
+          </div>
+          <label class="flag-checkbox mb-8">
+            <input id="auto-sync-time-toggle" type="checkbox" />
+            Auto-Sync Time (apply Raspberry Pi time automatically on device connect/boot)
+          </label>
+          <div id="auto-sync-time-output" class="mono-box mb-8"></div>
+        </div>
+
+        <div class="panel mt-14">
+          <div class="panel-header">
             <h2>Identity / Private Key</h2>
             <div class="inline-actions">
               <button id="btn-identity-regenerate" class="btn-err" type="button">Auto Regenerate</button>
