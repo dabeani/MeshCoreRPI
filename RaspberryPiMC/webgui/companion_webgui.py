@@ -11,6 +11,7 @@ import os
 import queue
 import re
 import secrets
+import sqlite3
 import socket
 import struct
 import threading
@@ -407,6 +408,8 @@ class MeshState:
             "mem": [],
         }
         self.settings: dict[str, Any] = {}
+        self.on_message_added: Callable[[dict[str, Any]], None] | None = None
+        self.on_message_updated: Callable[[str, str], None] | None = None
 
     def set_connected(self, connected: bool) -> None:
         with self._lock:
@@ -450,6 +453,33 @@ class MeshState:
             for key in self.history.keys():
                 if len(self.history[key]) > max_points:
                     self.history[key] = self.history[key][-max_points:]
+
+    def append_message(self, message: dict[str, Any], max_messages: int = 500) -> None:
+        with self._lock:
+            self.messages.append(message)
+            if len(self.messages) > max_messages:
+                self.messages = self.messages[-max_messages:]
+        cb = self.on_message_added
+        if cb:
+            try:
+                cb(dict(message))
+            except Exception:
+                pass
+
+    def mark_message_status(self, msg_id: str, status: str) -> bool:
+        changed = False
+        with self._lock:
+            for msg in reversed(self.messages):
+                if msg.get("msg_id") == msg_id:
+                    msg["status"] = status
+                    changed = True
+                    break
+        if changed and self.on_message_updated:
+            try:
+                self.on_message_updated(msg_id, status)
+            except Exception:
+                pass
+        return changed
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -520,6 +550,139 @@ def _to_bool(value: Any) -> bool:
         return value != 0
     text = str(value).strip().lower()
     return text in ("1", "true", "yes", "on", "enabled")
+
+
+def _to_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        num = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, num))
+
+
+def _message_db_candidate_paths(role: str) -> list[Path]:
+    paths = _settings_candidate_paths(role)
+    if not paths:
+        return []
+    out: list[Path] = []
+    for p in paths:
+        name = p.name
+        if name.startswith("webgui_settings") and name.endswith(".json"):
+            out.append(p.with_name(name.replace("webgui_settings", "webgui_messages").replace(".json", ".db")))
+        else:
+            out.append(p.with_name("webgui_messages.db"))
+    return out
+
+
+class MessageStore:
+    def __init__(self, db_path: Path) -> None:
+        self.db_path = db_path
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+        self._init_db()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
+
+    def _init_db(self) -> None:
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts INTEGER NOT NULL,
+                    msg_json TEXT NOT NULL,
+                    msg_size INTEGER NOT NULL
+                )
+                """
+            )
+            conn.commit()
+
+    def load_recent(self, limit: int) -> list[dict[str, Any]]:
+        limit = max(1, int(limit))
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT msg_json FROM messages ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for (raw,) in reversed(rows):
+            try:
+                item = json.loads(raw)
+                if isinstance(item, dict):
+                    out.append(item)
+            except Exception:
+                continue
+        return out
+
+    def append(self, message: dict[str, Any]) -> None:
+        raw = json.dumps(message, separators=(",", ":"), ensure_ascii=False)
+        size = len(raw.encode("utf-8"))
+        ts = int(message.get("ts", int(time.time())))
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO messages (ts, msg_json, msg_size) VALUES (?, ?, ?)",
+                (ts, raw, size),
+            )
+            conn.commit()
+
+    def prune(self, max_messages: int) -> None:
+        max_messages = max(1, int(max_messages))
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM messages
+                WHERE id NOT IN (
+                    SELECT id FROM messages ORDER BY id DESC LIMIT ?
+                )
+                """,
+                (max_messages,),
+            )
+            conn.commit()
+
+    def update_status_by_msg_id(self, msg_id: str, status: str) -> bool:
+        target = str(msg_id or "").strip()
+        if not target:
+            return False
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, msg_json FROM messages ORDER BY id DESC LIMIT 5000"
+            ).fetchall()
+            for row_id, raw in rows:
+                try:
+                    item = json.loads(raw)
+                except Exception:
+                    continue
+                if not isinstance(item, dict) or item.get("msg_id") != target:
+                    continue
+                item["status"] = status
+                new_raw = json.dumps(item, separators=(",", ":"), ensure_ascii=False)
+                new_size = len(new_raw.encode("utf-8"))
+                conn.execute(
+                    "UPDATE messages SET msg_json = ?, msg_size = ? WHERE id = ?",
+                    (new_raw, new_size, row_id),
+                )
+                conn.commit()
+                return True
+        return False
+
+    def stats(self) -> dict[str, int]:
+        with self._lock, self._connect() as conn:
+            row = conn.execute("SELECT COUNT(*), COALESCE(SUM(msg_size), 0) FROM messages").fetchone()
+        count = int(row[0] if row and row[0] is not None else 0)
+        payload_bytes = int(row[1] if row and row[1] is not None else 0)
+        try:
+            disk_bytes = int(self.db_path.stat().st_size)
+        except OSError:
+            disk_bytes = 0
+        return {
+            "count": count,
+            "payload_bytes": payload_bytes,
+            "disk_bytes": disk_bytes,
+        }
 
 
 class EventBus:
@@ -688,10 +851,7 @@ class CompanionClient:
             "text": text,
             "snr": snr,
         }
-        with self.state._lock:
-            self.state.messages.append(msg)
-            if len(self.state.messages) > 500:
-                self.state.messages = self.state.messages[-500:]
+        self.state.append_message(msg, max_messages=500)
         # Resolve channel name for event
         ch_name = next((c["name"] for c in self.state.channels if c["index"] == channel_idx), f"ch{channel_idx}")
         self.state.add_event(
@@ -743,10 +903,7 @@ class CompanionClient:
             "text": text,
             "snr": snr,
         }
-        with self.state._lock:
-            self.state.messages.append(msg)
-            if len(self.state.messages) > 500:
-                self.state.messages = self.state.messages[-500:]
+        self.state.append_message(msg, max_messages=500)
         self.state.add_event(
             "contact_msg",
             {
@@ -930,11 +1087,7 @@ class CompanionClient:
             # Acknowledge oldest pending outbound message
             if self._pending_ack_ids:
                 ack_id = self._pending_ack_ids.pop(0)
-                with self.state._lock:
-                    for m in reversed(self.state.messages):
-                        if m.get("msg_id") == ack_id:
-                            m["status"] = "sent"
-                            break
+                self.state.mark_message_status(ack_id, "sent")
         elif payload_type == RESP_CODE_NO_MORE_MSGS:
             pass  # No more queued messages — nothing to do
         elif payload_type == PUSH_CODE_ADVERT and len(payload) >= 33:
@@ -1008,11 +1161,16 @@ class CompanionClient:
                     # Expire outbound messages that never received an ACK (>15 s)
                     now_ts = int(time.time())
                     expired_any = False
+                    expired_ids: list[str] = []
                     with self.state._lock:
                         for m in self.state.messages:
                             if m.get("outbound") and m.get("status") == "pending" and now_ts - m.get("ts", now_ts) > 15:
                                 m["status"] = "failed"
                                 expired_any = True
+                                if m.get("msg_id"):
+                                    expired_ids.append(str(m.get("msg_id")))
+                    for msg_id in expired_ids:
+                        self.state.mark_message_status(msg_id, "failed")
                     if expired_any:
                         self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": now_ts})
                     self.send_cmd(bytes([CMD_GET_BATT_AND_STORAGE]))
@@ -1497,13 +1655,27 @@ class App:
         self.bus = EventBus()
         self.settings: dict[str, Any] = {
             "auto_sync_time": False,
+            "message_store_max": 1000,
         }
         self.runtime_settings: dict[str, Any] = {
             "last_time_sync_epoch": 0,
             "last_time_sync_source": "",
+            "message_store_count": 0,
+            "message_store_payload_bytes": 0,
+            "message_store_disk_bytes": 0,
         }
+        self.message_store: MessageStore | None = None
+        self._seen_connected_once = False
         self._load_settings()
         self._refresh_state_settings()
+        if role == "companion":
+            db_candidates = _message_db_candidate_paths(role)
+            if db_candidates:
+                self.message_store = MessageStore(db_candidates[0])
+                self._sync_message_store_stats()
+                self._load_messages_from_store()
+                self.state.on_message_added = self._on_message_added
+                self.state.on_message_updated = self._on_message_updated
         if role == "companion":
             self.client: CompanionClient | RepeaterClient = CompanionClient(
                 companion_host,
@@ -1537,6 +1709,8 @@ class App:
                 if isinstance(data, dict):
                     if "auto_sync_time" in data:
                         self.settings["auto_sync_time"] = _to_bool(data.get("auto_sync_time"))
+                    if "message_store_max" in data:
+                        self.settings["message_store_max"] = _to_int(data.get("message_store_max"), 1000, 50, 50000)
                 return
             except Exception:
                 continue
@@ -1561,6 +1735,52 @@ class App:
         merged = dict(self.settings)
         merged.update(self.runtime_settings)
         self.state.settings = merged
+
+    def _sync_message_store_stats(self) -> None:
+        if not self.message_store:
+            return
+        stats = self.message_store.stats()
+        self.runtime_settings["message_store_count"] = int(stats.get("count", 0))
+        self.runtime_settings["message_store_payload_bytes"] = int(stats.get("payload_bytes", 0))
+        self.runtime_settings["message_store_disk_bytes"] = int(stats.get("disk_bytes", 0))
+        self._refresh_state_settings()
+
+    def _load_messages_from_store(self) -> None:
+        if not self.message_store:
+            return
+        limit = _to_int(self.settings.get("message_store_max", 1000), 1000, 50, 50000)
+        loaded = self.message_store.load_recent(limit)
+        if not loaded:
+            return
+        with self.state._lock:
+            self.state.messages = loaded[-5000:]
+        self._sync_message_store_stats()
+
+    def _on_message_added(self, message: dict[str, Any]) -> None:
+        if not self.message_store:
+            return
+        self.message_store.append(message)
+        self.message_store.prune(_to_int(self.settings.get("message_store_max", 1000), 1000, 50, 50000))
+        self._sync_message_store_stats()
+
+    def _on_message_updated(self, msg_id: str, status: str) -> None:
+        if not self.message_store:
+            return
+        self.message_store.update_status_by_msg_id(msg_id, status)
+        self._sync_message_store_stats()
+
+    def _set_message_store_max(self, value: Any) -> int:
+        max_messages = _to_int(value, 1000, 50, 50000)
+        self.settings["message_store_max"] = max_messages
+        self._save_settings()
+        if self.message_store:
+            self.message_store.prune(max_messages)
+        with self.state._lock:
+            if len(self.state.messages) > max_messages:
+                self.state.messages = self.state.messages[-max_messages:]
+        self._sync_message_store_stats()
+        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+        return max_messages
 
     def _sync_time_from_rpi(self, source: str = "auto") -> dict[str, Any]:
         now = int(time.time())
@@ -1797,9 +2017,8 @@ class App:
                 "status": "pending",
                 "msg_id": msg_id,
             }
-            with self.state._lock:
-                self.state.messages.append(out_msg)
-                self.client._pending_ack_ids.append(msg_id)
+            self.state.append_message(out_msg, max_messages=500)
+            self.client._pending_ack_ids.append(msg_id)
             self.state.add_event(
                 "chan_msg_sent",
                 {
@@ -1840,9 +2059,8 @@ class App:
                 "status": "pending",
                 "msg_id": msg_id,
             }
-            with self.state._lock:
-                self.state.messages.append(out_msg)
-                self.client._pending_ack_ids.append(msg_id)
+            self.state.append_message(out_msg, max_messages=500)
+            self.client._pending_ack_ids.append(msg_id)
             self.state.add_event(
                 "dm_sent",
                 {
@@ -2244,6 +2462,16 @@ class App:
             enabled = _to_bool(args.get("enabled", False))
             self._set_auto_sync_time(enabled)
             return {"auto_sync_time": enabled}
+
+        if name == "set_message_store_max":
+            if self.role != "companion":
+                raise ValueError("message database is companion-only")
+            max_messages = self._set_message_store_max(args.get("max_messages", 1000))
+            return {
+                "message_store_max": max_messages,
+                "message_store_count": int(self.runtime_settings.get("message_store_count", 0)),
+                "message_store_disk_bytes": int(self.runtime_settings.get("message_store_disk_bytes", 0)),
+            }
 
         if self.role == "companion":
             return self._companion_command(name, args)

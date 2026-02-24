@@ -101,6 +101,19 @@ function setOutput(id, text) {
   if (el) el.textContent = (text == null) ? '' : (typeof text === 'string' ? text : JSON.stringify(text, null, 2));
 }
 
+function fmtBytes(bytes) {
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let v = n;
+  let idx = 0;
+  while (v >= 1024 && idx < units.length - 1) {
+    v /= 1024;
+    idx += 1;
+  }
+  return `${v.toFixed(idx === 0 ? 0 : 2)} ${units[idx]}`;
+}
+
 function contactKindStr(kind, role) {
   // ADV_TYPE_NONE=0, ADV_TYPE_CHAT=1 (client), ADV_TYPE_REPEATER=2, ADV_TYPE_ROOM=3, ADV_TYPE_SENSOR=4
   const types = ['Unknown', 'Client', 'Repeater', 'Room Server', 'Sensor'];
@@ -1690,6 +1703,24 @@ function renderAll(snap) {
     autoSyncToggle.checked = enabled;
   }
 
+  const msgDbStatsEl = document.getElementById('msg-db-stats');
+  if (msgDbStatsEl) {
+    const settings = snap.settings || {};
+    const maxMsgs = Number(settings.message_store_max || 0);
+    const countMsgs = Number(settings.message_store_count || 0);
+    const payloadBytes = Number(settings.message_store_payload_bytes || 0);
+    const diskBytes = Number(settings.message_store_disk_bytes || 0);
+    msgDbStatsEl.textContent = [
+      `Stored    : ${countMsgs}${maxMsgs > 0 ? ` / ${maxMsgs}` : ''}`,
+      `Payload   : ${fmtBytes(payloadBytes)}`,
+      `DB on disk: ${fmtBytes(diskBytes)}`,
+    ].join('\n');
+    const input = document.querySelector('#msg-db-form input[name="max_messages"]');
+    if (input && document.activeElement !== input && maxMsgs > 0) {
+      input.value = String(maxMsgs);
+    }
+  }
+
   // Events sidebar
   renderEvents(snap.events || []);
 
@@ -1839,6 +1870,26 @@ function wireUi() {
     app.autoSyncTimePending = null;
     setOutput('auto-sync-time-output', `Error: ${d?.error || 'unknown'}`);
     e.target.checked = !enabled;
+  });
+
+  document.getElementById('msg-db-form')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const raw = new FormData(e.target).get('max_messages');
+    const maxMessages = parseInt(raw, 10);
+    if (!Number.isFinite(maxMessages) || maxMessages < 50 || maxMessages > 50000) {
+      setOutput('msg-db-stats', 'Invalid value. Use 50..50000 messages.');
+      return;
+    }
+    const d = await sendCommand('set_message_store_max', { max_messages: maxMessages });
+    if (!d?.ok) {
+      setOutput('msg-db-stats', `Error: ${d?.error || 'unknown'}`);
+      return;
+    }
+    const p = d.payload || {};
+    setOutput('msg-db-stats', [
+      `Stored    : ${p.message_store_count || 0} / ${p.message_store_max || maxMessages}`,
+      `DB on disk: ${fmtBytes(p.message_store_disk_bytes || 0)}`,
+    ].join('\n'));
   });
 
   let resizeTimer = null;

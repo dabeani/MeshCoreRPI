@@ -222,6 +222,18 @@
             </div>
 
           </div><!-- /cfg-layout -->
+
+          <div class="panel mb-14">
+            <div class="panel-header">
+              <h2>Message Database</h2>
+            </div>
+            <p class="form-hint">Persist companion messages across reboot. Configure the maximum number of stored messages.</p>
+            <form id="msg-db-form" class="row-form mb-8">
+              <input name="max_messages" type="number" min="50" max="50000" step="1" placeholder="Max stored messages" />
+              <button type="submit">Set</button>
+            </form>
+            <div id="msg-db-stats" class="mono-box"></div>
+          </div>
         </div>
 
         <!-- Repeater: full config management -->
