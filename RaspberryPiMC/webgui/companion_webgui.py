@@ -1805,6 +1805,17 @@ class App:
             result["reply"] = reply
         return result
 
+    def _update_self_pubkey_state(self, pubkey_hex: str) -> None:
+        key = str(pubkey_hex or "").strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", key):
+            return
+        with self.state._lock:
+            info = dict(self.state.self_info)
+            info["pubkey"] = key
+            info["public_key"] = key
+            self.state.self_info = info
+        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+
     def _on_client_connected(self) -> None:
         if self._seen_connected_once:
             self._reset_statistics_after_reconnect()
@@ -1942,6 +1953,7 @@ class App:
         if name == "identity_set_key":
             key_hex = _require_private_key_hex(args.get("private_key", ""))
             self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
+            self._update_self_pubkey_state(key_hex[64:])
             self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
             self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
             return {
@@ -1961,6 +1973,7 @@ class App:
         if name == "identity_regenerate":
             key_hex = _generate_private_key_hex()
             self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
+            self._update_self_pubkey_state(key_hex[64:])
             self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
             self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
             return {
@@ -1972,6 +1985,7 @@ class App:
         if name == "identity_renew_public_key":
             key_hex = _generate_private_key_hex()
             self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
+            self._update_self_pubkey_state(key_hex[64:])
             self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
             self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
             return {
@@ -2172,7 +2186,7 @@ class App:
         if name == "identity_set_key":
             key_hex = _require_private_key_hex(args.get("private_key", ""))
             reply = self.client.send_cli_command(f"set prv.key {key_hex}")
-            self.client.refresh(full=True)
+            self._update_self_pubkey_state(key_hex[64:])
             return {
                 "reply": reply,
                 "message": "Identity key updated. Reboot required to apply.",
@@ -2194,7 +2208,7 @@ class App:
         if name == "identity_regenerate":
             key_hex = _generate_private_key_hex()
             reply = self.client.send_cli_command(f"set prv.key {key_hex}")
-            self.client.refresh(full=True)
+            self._update_self_pubkey_state(key_hex[64:])
             return {
                 "reply": reply,
                 "message": "New identity key generated. Reboot required to apply.",
@@ -2204,7 +2218,7 @@ class App:
         if name == "identity_renew_public_key":
             key_hex = _generate_private_key_hex()
             reply = self.client.send_cli_command(f"set prv.key {key_hex}")
-            self.client.refresh(full=True)
+            self._update_self_pubkey_state(key_hex[64:])
             return {
                 "reply": reply,
                 "message": "New keypair generated. Reboot required to apply; public key will change.",
