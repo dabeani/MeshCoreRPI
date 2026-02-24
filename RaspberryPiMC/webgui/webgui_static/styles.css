@@ -213,7 +213,7 @@ button:hover { border-color: var(--accent); background: #1f3268; }
 .pktstats-empty { color: var(--muted); font-size: 12px; }
 
 /* ─────────────── System mini charts (dashboard) ─────────────── */
-.sys-chart { width: 100%; display: block; height: 72px; margin-top: 8px; }
+.sys-chart { width: 100%; display: block; height: 92px; margin-top: 8px; }
 
 /* ─────────────── Tables ─────────────── */
 .table-wrap { overflow-x: auto; }

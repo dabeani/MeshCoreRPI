@@ -729,7 +729,10 @@ function drawChart(canvas, ts, series) {
     return;
   }
 
-  const pad = { l: 46, r: 14, t: 22, b: 26 };
+  const isMini = H <= 100;
+  const pad = isMini
+    ? { l: 34, r: 10, t: 18, b: 16 }
+    : { l: 46, r: 14, t: 22, b: 26 };
   const pw = W - pad.l - pad.r;
   const ph = H - pad.t - pad.b;
 
@@ -745,7 +748,7 @@ function drawChart(canvas, ts, series) {
   const yRange = yMax - yMin;
 
   // Grid
-  const nGrid = 4;
+  const nGrid = isMini ? 3 : 4;
   ctx.lineWidth = 1;
   for (let i = 0; i <= nGrid; i++) {
     const y = pad.t + ph * (1 - i / nGrid);
@@ -755,19 +758,19 @@ function drawChart(canvas, ts, series) {
     ctx.setLineDash([]);
     const val = yMin + yRange * (i / nGrid);
     ctx.fillStyle = '#7a8fc7';
-    ctx.font = '10px system-ui';
+    ctx.font = isMini ? '9px system-ui' : '10px system-ui';
     ctx.textAlign = 'right';
     ctx.fillText(
       Math.abs(val) >= 1000 ? (val / 1000).toFixed(1) + 'k' : Math.round(val),
-      pad.l - 4, y + 3.5
+      pad.l - 3, y + (isMini ? 3 : 3.5)
     );
   }
 
   // X-axis labels
   const tsMin = ts[0], tsMax = ts[ts.length - 1];
-  const nXL = Math.min(6, ts.length);
+  const nXL = Math.min(isMini ? 3 : 6, ts.length);
   ctx.fillStyle = '#7a8fc7';
-  ctx.font = '10px system-ui';
+  ctx.font = isMini ? '9px system-ui' : '10px system-ui';
   ctx.textAlign = 'center';
   for (let i = 0; i <= nXL; i++) {
     const t = tsMin + (tsMax - tsMin) * (i / nXL);
@@ -775,7 +778,7 @@ function drawChart(canvas, ts, series) {
     const d = new Date(t * 1000);
     ctx.fillText(
       `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
-      x, H - 7
+      x, H - (isMini ? 4 : 7)
     );
   }
 
@@ -821,12 +824,12 @@ function drawChart(canvas, ts, series) {
   let lx = pad.l;
   for (const s of series) {
     ctx.fillStyle = s.color;
-    ctx.fillRect(lx, pad.t - 9, 18, 4);
+    ctx.fillRect(lx, pad.t - (isMini ? 8 : 9), isMini ? 14 : 18, 4);
     ctx.fillStyle = '#e4eeff';
-    ctx.font = '10px system-ui';
+    ctx.font = isMini ? '9px system-ui' : '10px system-ui';
     ctx.textAlign = 'left';
-    ctx.fillText(s.label, lx + 22, pad.t - 5);
-    lx += Math.max(70, s.label.length * 7 + 28);
+    ctx.fillText(s.label, lx + (isMini ? 18 : 22), pad.t - 5);
+    lx += Math.max(isMini ? 56 : 70, s.label.length * (isMini ? 6 : 7) + (isMini ? 22 : 28));
   }
 }
 
