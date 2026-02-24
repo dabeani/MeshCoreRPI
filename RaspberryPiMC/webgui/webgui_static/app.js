@@ -223,6 +223,29 @@ async function refreshCombinedLog() {
   if (app.rxlogLiveScroll) out.scrollTop = out.scrollHeight;
 }
 
+function _isNearBottom(el, pad = 12) {
+  if (!el) return false;
+  return (el.scrollTop + el.clientHeight) >= (el.scrollHeight - pad);
+}
+
+function adjustLogBoxSize(opts = {}) {
+  const out = document.getElementById('combined-log-output');
+  if (!out) return;
+  const keepBottom = !!opts.keepBottom;
+  const wasNearBottom = _isNearBottom(out, 24);
+
+  const rect = out.getBoundingClientRect();
+  const viewport = window.innerHeight || document.documentElement.clientHeight || 0;
+  const bottomGap = 24;
+  const minHeight = 120;
+  const maxHeight = Math.max(minHeight, Math.floor(viewport - rect.top - bottomGap));
+  out.style.maxHeight = `${maxHeight}px`;
+
+  if (app.rxlogLiveScroll && (keepBottom || wasNearBottom)) {
+    out.scrollTop = out.scrollHeight;
+  }
+}
+
 function _normalizeLogLines(lines) {
   return (lines || []).map(v => String(v ?? '').replace(/\r/g, '')).filter(Boolean);
 }
@@ -365,6 +388,8 @@ function renderCombinedLog() {
     const cls = en.cls ? `rxlog-line ${en.cls}` : 'rxlog-line';
     return `<div class="${cls}">${tagRoute}${tagPayload}${_esc(en.text)}</div>`;
   }).join('');
+
+  adjustLogBoxSize();
 }
 
 function rxlogLineType(line) {
@@ -954,6 +979,7 @@ function renderLog(events, filter = '') {
   void events;
   void filter;
   renderCombinedLog();
+    requestAnimationFrame(() => adjustLogBoxSize({ keepBottom: true }));
 }
 
 // legacy function body intentionally removed
@@ -1773,10 +1799,20 @@ function wireUi() {
     app.latestRxLogText = '';
     app.latestRxLogLines = [];
     renderCombinedLog();
+    adjustLogBoxSize({ keepBottom: true });
   });
 
   document.getElementById('rxlog-live-scroll')?.addEventListener('change', e => {
     app.rxlogLiveScroll = e.target.checked;
+    if (app.rxlogLiveScroll) {
+      adjustLogBoxSize({ keepBottom: true });
+    }
+  });
+
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => adjustLogBoxSize(), 40);
   });
 
   // Config: delegated set-button click from grouped param display
@@ -2040,6 +2076,7 @@ function _handleRealtimeEvent(msg) {
         const out = document.getElementById('combined-log-output');
         if (out) out.scrollTop = out.scrollHeight;
       }
+      adjustLogBoxSize();
     }
   }
 }
@@ -2146,6 +2183,7 @@ function connectWebSocket() {
 // ─── Boot ────────────────────────────────────────────
 (async function init() {
   wireUi();
+  adjustLogBoxSize();
   updateWsStatusPanel();
 
   // Initial state via REST fallback
