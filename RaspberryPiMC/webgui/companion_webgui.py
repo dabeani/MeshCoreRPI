@@ -486,7 +486,7 @@ class MeshState:
             }
 
 
-def _settings_candidate_paths() -> list[Path]:
+def _settings_candidate_paths(role: str | None = None) -> list[Path]:
     roots: list[Path] = []
     env_root = os.getenv("MESHCORE_DATA_DIR", "").strip()
     if env_root:
@@ -494,7 +494,21 @@ def _settings_candidate_paths() -> list[Path]:
     roots.append(Path("/var/lib/raspberrypimc/userdata"))
     roots.append(Path.cwd() / "RaspberryPiMC" / "userdata")
     roots.append(Path(__file__).resolve().parent.parent / "userdata")
-    return [root / "webgui_settings.json" for root in roots]
+    paths: list[Path] = []
+    if role in ("companion", "repeater"):
+        paths.extend([root / f"webgui_settings_{role}.json" for root in roots])
+    # Legacy fallback (old shared settings file)
+    paths.extend([root / "webgui_settings.json" for root in roots])
+
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for p in paths:
+        k = str(p)
+        if k in seen:
+            continue
+        seen.add(k)
+        deduped.append(p)
+    return deduped
 
 
 def _to_bool(value: Any) -> bool:
@@ -1486,7 +1500,7 @@ class App:
         self.stop_event = threading.Event()
 
     def _load_settings(self) -> None:
-        for path in _settings_candidate_paths():
+        for path in _settings_candidate_paths(self.role):
             try:
                 if not path.exists() or not path.is_file():
                     continue
@@ -1499,7 +1513,7 @@ class App:
                 continue
 
     def _save_settings(self) -> None:
-        target = _settings_candidate_paths()[0]
+        target = _settings_candidate_paths(self.role)[0]
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             tmp = target.with_suffix(".tmp")
