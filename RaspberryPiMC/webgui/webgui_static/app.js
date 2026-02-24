@@ -40,6 +40,7 @@ const app = {
   wsLastMsgAt: 0,
   wsLatencyTs: [],
   wsLatencyMs: [],
+  autoSyncTimePending: null,
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
@@ -1683,7 +1684,9 @@ function renderAll(snap) {
 
   const autoSyncToggle = document.getElementById('auto-sync-time-toggle');
   if (autoSyncToggle) {
-    const enabled = !!snap?.settings?.auto_sync_time;
+    const enabled = app.autoSyncTimePending === null
+      ? !!snap?.settings?.auto_sync_time
+      : !!app.autoSyncTimePending;
     autoSyncToggle.checked = enabled;
   }
 
@@ -1824,13 +1827,16 @@ function wireUi() {
 
   document.getElementById('auto-sync-time-toggle')?.addEventListener('change', async e => {
     const enabled = !!e.target.checked;
+    app.autoSyncTimePending = enabled;
     const d = await sendCommand('set_auto_sync_time', { enabled });
     if (d?.ok) {
+      app.autoSyncTimePending = null;
       setOutput('auto-sync-time-output', enabled
         ? '✓ Auto-Sync Time enabled. Device time will sync from Raspberry Pi on connect/boot.'
         : 'Auto-Sync Time disabled.');
       return;
     }
+    app.autoSyncTimePending = null;
     setOutput('auto-sync-time-output', `Error: ${d?.error || 'unknown'}`);
     e.target.checked = !enabled;
   });
