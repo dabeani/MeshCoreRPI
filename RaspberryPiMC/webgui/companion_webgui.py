@@ -33,6 +33,7 @@ CMD_SEND_SELF_ADVERT = 7
 CMD_SET_ADVERT_NAME = 8
 CMD_SYNC_NEXT_MESSAGE = 10
 CMD_SET_ADVERT_LATLON = 14
+CMD_REMOVE_CONTACT = 15
 CMD_GET_BATT_AND_STORAGE = 20
 CMD_DEVICE_QUERY = 22
 CMD_GET_STATS = 56
@@ -1558,6 +1559,29 @@ class App:
             self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             return {"pubkey_prefix": pubkey_hex[:12], "bytes": len(text_raw)}
 
+        if name == "contact_remove":
+            pubkey_hex = str(args.get("pubkey", "")).strip().lower()
+            if not pubkey_hex:
+                raise ValueError("pubkey is required")
+            if not re.fullmatch(r"[0-9a-f]+", pubkey_hex):
+                raise ValueError("pubkey must be hex")
+
+            contact = self.state.contacts.get(pubkey_hex)
+            if not contact:
+                prefix12 = pubkey_hex[:12]
+                contact = next((c for k, c in self.state.contacts.items() if k.startswith(prefix12)), None)
+            target_hex = contact.pubkey if contact else pubkey_hex
+            if len(target_hex) != 64:
+                raise ValueError("pubkey must be full 32-byte key")
+
+            self.client.send_cmd(bytes([CMD_REMOVE_CONTACT]) + bytes.fromhex(target_hex))
+            with self.state._lock:
+                self.state.contacts.pop(target_hex, None)
+            self.state.add_event("contact_remove", {"pubkey": target_hex})
+            self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
+            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+            return {"pubkey": target_hex, "queued": True}
+
         if name == "get_channels":
             for idx in range(8):
                 self.client.send_cmd(bytes([CMD_GET_CHANNEL, idx]))
@@ -1648,6 +1672,17 @@ class App:
             pubkey_prefix = str(args.get("pubkey_prefix", "")).strip().lower()
             if not pubkey_prefix:
                 raise ValueError("pubkey_prefix is required")
+            reply = self.client.send_cli_command(f"neighbor.remove {pubkey_prefix}")
+            self.client.refresh(full=False)
+            return {"pubkey_prefix": pubkey_prefix, "reply": reply}
+
+        if name == "contact_remove":
+            pubkey_or_prefix = str(args.get("pubkey", args.get("pubkey_prefix", ""))).strip().lower()
+            if not pubkey_or_prefix:
+                raise ValueError("pubkey is required")
+            if not re.fullmatch(r"[0-9a-f]+", pubkey_or_prefix):
+                raise ValueError("pubkey must be hex")
+            pubkey_prefix = pubkey_or_prefix[:16]
             reply = self.client.send_cli_command(f"neighbor.remove {pubkey_prefix}")
             self.client.refresh(full=False)
             return {"pubkey_prefix": pubkey_prefix, "reply": reply}

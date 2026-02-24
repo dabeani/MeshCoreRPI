@@ -849,11 +849,9 @@ function renderContacts(snap, filter = '') {
     const snrStr = c.snr != null ? `${c.snr} dB` : '–';
     const kind   = contactKindStr(c.kind, role);
     const locateBtn = hasLoc(c)
-      ? `<button class="btn-sm" onclick="locateContact(${c.lat.toFixed(6)},${c.lon.toFixed(6)})">Locate</button>`
+      ? `<button class="btn-sm" onclick="locateContact(${c.lat.toFixed(6)},${c.lon.toFixed(6)})">MAP</button>`
       : '';
-    const removeBtn = role === 'repeater'
-      ? `<button class="btn-sm btn-err" onclick="removeNeighbor('${c.pubkey.slice(0, 16)}')">Remove</button>`
-      : '';
+    const removeBtn = `<button class="btn-sm btn-err" onclick="removeContact('${c.pubkey}')">Delete</button>`;
     return `<tr>
       <td>${c.name || '–'}</td>
       <td>${kind}</td>
@@ -867,10 +865,17 @@ function renderContacts(snap, filter = '') {
   }).join('');
 }
 
-async function removeNeighbor(prefix) {
-  if (!confirm(`Remove neighbor ${prefix}?`)) return;
-  const d = await sendCommand('neighbor_remove', { pubkey_prefix: prefix });
-  alert(d?.payload?.reply || JSON.stringify(d?.payload) || 'Done');
+async function removeContact(pubkey) {
+  const key = String(pubkey || '').trim().toLowerCase();
+  if (!key) return;
+  const shortKey = key.slice(0, 16);
+  if (!confirm(`Delete contact ${shortKey}?`)) return;
+  const d = await sendCommand('contact_remove', { pubkey: key });
+  if (!d?.ok) {
+    alert(d?.error || 'Delete failed');
+    return;
+  }
+  alert(d?.payload?.reply || `Deleted ${shortKey}`);
 }
 
 function locateContact(lat, lon) {
