@@ -215,7 +215,7 @@
               <div class="panel-header">
                 <h2>Device Info</h2>
                 <div class="inline-actions">
-                  <button id="btn-copy-pubkey" class="btn-sm" type="button">Copy Pubkey</button>
+                  <button class="btn-sm" type="button" data-copy-pubkey="1">Copy Pubkey</button>
                 </div>
               </div>
               <div id="companion-device-info" class="mono-box" style="max-height:none;min-height:80px"></div>
@@ -226,6 +226,16 @@
 
         <!-- Repeater: full config management -->
         <div class="repeater-only">
+          <div class="panel mb-14">
+            <div class="panel-header">
+              <h2>Device Info</h2>
+              <div class="inline-actions">
+                <button class="btn-sm" type="button" data-copy-pubkey="1">Copy Pubkey</button>
+              </div>
+            </div>
+            <div id="repeater-device-info" class="mono-box" style="max-height:none;min-height:80px"></div>
+          </div>
+
           <div class="cfg-layout">
 
             <!-- Parameters panel (grouped, metadata-driven) -->

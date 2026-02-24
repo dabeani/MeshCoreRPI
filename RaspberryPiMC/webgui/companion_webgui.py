@@ -1099,18 +1099,22 @@ class RepeaterClient:
         lon_raw  = self.send_cli_command("get lon")
         freq_raw = self.send_cli_command("get freq")  # returns MHz
         pubkey_raw = self.send_cli_command("get public.key")
+        tx_raw = self.send_cli_command("get tx")
 
         current = dict(self.state.self_info)
         current["name"] = name_raw.strip() or current.get("name", "")
         lat_v  = _extract_float(lat_raw)
         lon_v  = _extract_float(lon_raw)
         freq_v = _extract_float(freq_raw)
+        tx_v = _extract_float(tx_raw)
         if lat_v is not None:
             current["adv_lat"] = lat_v
         if lon_v is not None:
             current["adv_lon"] = lon_v
         if freq_v is not None and freq_v > 0:
             current["radio_freq_khz"] = int(freq_v * 1000)  # MHz → kHz
+        if tx_v is not None:
+            current["tx_power_db"] = int(round(tx_v))
         pubkey_match = re.search(r"([0-9a-fA-F]{64})", pubkey_raw)
         if pubkey_match:
             current["pubkey"] = pubkey_match.group(1).lower()

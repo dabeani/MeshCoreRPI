@@ -1628,13 +1628,16 @@ function renderAll(snap) {
   renderSystemCharts(snap);
   updateWsStatusPanel();
 
-  // Companion device info panel (config tab)
-  const infoEl = document.getElementById('companion-device-info');
-  if (infoEl) {
+  // Device info panels (companion + repeater config)
+  const infoEls = [
+    document.getElementById('companion-device-info'),
+    document.getElementById('repeater-device-info'),
+  ].filter(Boolean);
+  if (infoEls.length) {
     const si = snap.self_info  || {};
     const di = snap.device_info || {};
     const selfPubkey = si.pubkey || si.public_key || di.pubkey || di.public_key || '–';
-    infoEl.textContent = [
+    const infoText = [
       `Name     : ${si.name    || '–'}`,
       `Pubkey   : ${selfPubkey}`,
       `Model    : ${di.model   || '–'}`,
@@ -1642,6 +1645,7 @@ function renderAll(snap) {
       `Freq     : ${si.radio_freq_khz  ? (si.radio_freq_khz / 1000).toFixed(3) + ' MHz' : '–'}`,
       `TX Power : ${si.tx_power_db != null ? si.tx_power_db + ' dB' : '–'}`,
     ].join('\n');
+    infoEls.forEach((el) => { el.textContent = infoText; });
   }
 
   // Events sidebar
@@ -1942,21 +1946,23 @@ function wireUi() {
     setOutput('companion-cfg-output', d?.ok ? `✓ Time synced: ${new Date().toLocaleString()}` : `Error: ${d?.error}`);
   });
 
-  document.getElementById('btn-copy-pubkey')?.addEventListener('click', async () => {
-    const snap = app.snap || {};
-    const si = snap.self_info || {};
-    const di = snap.device_info || {};
-    const pubkey = String(si.pubkey || si.public_key || di.pubkey || di.public_key || '').trim();
-    if (!/^[0-9a-fA-F]{64}$/.test(pubkey)) {
-      setOutput('companion-cfg-output', 'No valid public key available yet. Try Refresh.');
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(pubkey.toLowerCase());
-      setOutput('companion-cfg-output', '✓ Public key copied to clipboard');
-    } catch (err) {
-      setOutput('companion-cfg-output', `Clipboard error: ${err?.message || err}`);
-    }
+  document.querySelectorAll('[data-copy-pubkey]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const snap = app.snap || {};
+      const si = snap.self_info || {};
+      const di = snap.device_info || {};
+      const pubkey = String(si.pubkey || si.public_key || di.pubkey || di.public_key || '').trim();
+      if (!/^[0-9a-fA-F]{64}$/.test(pubkey)) {
+        setOutput('companion-cfg-output', 'No valid public key available yet. Try Refresh.');
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(pubkey.toLowerCase());
+        setOutput('companion-cfg-output', '✓ Public key copied to clipboard');
+      } catch (err) {
+        setOutput('companion-cfg-output', `Clipboard error: ${err?.message || err}`);
+      }
+    });
   });
 
   // ── Messages (DM) tab ─────────────────────────────────
