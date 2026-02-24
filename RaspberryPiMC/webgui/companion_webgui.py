@@ -163,37 +163,74 @@ def _require_private_key_hex(value: Any) -> str:
 
 
 def _generate_private_key_hex() -> str:
+    # MeshCore expects first 32 bytes to be an already-clamped scalar
+    # (see lib/ed25519/keypair.c + ed25519_derive_pub usage).
+    scalar = bytearray(secrets.token_bytes(32))
+    scalar[0] &= 248
+    scalar[31] &= 63
+    scalar[31] |= 64
+    tail = secrets.token_bytes(32)
+    return (bytes(scalar) + tail).hex()
+
+
+def _derive_public_key_hex(private_key_hex: str) -> str | None:
+    key = str(private_key_hex or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{128}", key):
+        return None
     try:
-        from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from nacl.bindings import crypto_scalarmult_ed25519_base_noclamp
 
-        sk = Ed25519PrivateKey.generate()
-        seed = sk.private_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PrivateFormat.Raw,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-        pub = sk.public_key().public_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw,
-        )
-        return (seed + pub).hex()
+        scalar = bytes.fromhex(key[:64])
+        return crypto_scalarmult_ed25519_base_noclamp(scalar).hex()
     except Exception:
-        pass
+        return None
 
-    try:
-        from nacl.signing import SigningKey
 
-        sk = SigningKey.generate()
-        seed = bytes(sk)
-        pub = bytes(sk.verify_key)
-        return (seed + pub).hex()
-    except Exception:
-        pass
+def _looks_like_error_reply(reply: str) -> bool:
+    text = str(reply or "").strip().lower()
+    return bool(text) and (text.startswith("err") or text.startswith("error"))
 
-    seed = secrets.token_bytes(32)
-    pub = secrets.token_bytes(32)
-    return (seed + pub).hex()
+
+def _extract_pubkey_from_reply(reply: str) -> str | None:
+    m = re.search(r"([0-9a-fA-F]{64})", str(reply or ""))
+    return m.group(1).lower() if m else None
+
+
+def _key_scalar_hex(key_hex: str) -> str:
+    return str(key_hex or "")[:64].lower()
+
+
+def _private_key_with_derived_pub_hex(key_hex: str) -> str:
+    key = _require_private_key_hex(key_hex)
+    pub = _derive_public_key_hex(key)
+    return (key[:64] + pub) if pub else key
+
+
+def _generated_device_key_hex() -> str:
+    for _ in range(12):
+        key_hex = _private_key_with_derived_pub_hex(_generate_private_key_hex())
+        pub = _derive_public_key_hex(key_hex)
+        if pub and not (pub.startswith("00") or pub.startswith("ff")):
+            return key_hex
+    return _private_key_with_derived_pub_hex(_generate_private_key_hex())
+
+
+def _pubkey_for_ui(private_key_hex: str, fallback: str | None = None) -> str | None:
+    pub = _derive_public_key_hex(private_key_hex)
+    if pub:
+        return pub
+    if fallback and re.fullmatch(r"[0-9a-fA-F]{64}", fallback):
+        return fallback.lower()
+    return None
+
+
+def _sanitize_private_key_hex_for_device(key_hex: str) -> str:
+    key = _require_private_key_hex(key_hex)
+    return _private_key_with_derived_pub_hex(key)
+
+
+def _private_key_scalar_matches(a: str, b: str) -> bool:
+    return _key_scalar_hex(a) == _key_scalar_hex(b)
 
 
 def _packet_log_candidate_paths() -> list[Path]:
@@ -228,33 +265,14 @@ def _read_packet_log_tail(lines: int, max_bytes: int = 64 * 1024) -> str:
                 nl = data.find(b"\n")
                 if nl >= 0:
                     data = data[nl + 1 :]
-            try:
-                text = data.decode("utf-8", errors="replace")
-            except Exception:
-                text = data.decode("latin-1", errors="replace")
-            if lines <= 0:
-                return text
-            parts = text.splitlines()
-            return "\n".join(parts[-lines:])
+            text = data.decode("utf-8", errors="replace")
+            lines_list = text.splitlines()
+            if not lines_list:
+                return "-empty-"
+            return "\n".join(lines_list[-lines:])
         except OSError:
             continue
     return "-none-"
-
-
-def _append_packet_log_line(line: str) -> None:
-    text = str(line).strip()
-    if not text:
-        return
-    for p in _packet_log_candidate_paths():
-        try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            with p.open("a", encoding="utf-8", errors="replace") as f:
-                f.write(text)
-                f.write("\n")
-            return
-        except OSError:
-            continue
-
 
 def _compute_packet_header_breakdown_from_text(text: str, source: str = "") -> dict[str, Any]:
     transport_payload_types = {0x00, 0x01, 0x08}  # REQ, RESP, PATH
@@ -1834,6 +1852,32 @@ class App:
             self.state.self_info = info
         self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
 
+    def _apply_companion_private_key(self, key_hex: str) -> str:
+        assert isinstance(self.client, CompanionClient)
+        key_hex = _sanitize_private_key_hex_for_device(key_hex)
+        self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
+        time.sleep(0.15)
+        read_back = self.client.request_private_key(timeout=4.5)
+        if not _private_key_scalar_matches(read_back, key_hex):
+            raise ValueError("device rejected private key (format mismatch)")
+        pub = _pubkey_for_ui(key_hex, fallback=self.state.self_info.get("pubkey"))
+        if pub:
+            self._update_self_pubkey_state(pub)
+        self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
+        self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
+        return key_hex
+
+    def _apply_repeater_private_key(self, key_hex: str) -> tuple[str, str | None, str]:
+        assert isinstance(self.client, RepeaterClient)
+        key_hex = _sanitize_private_key_hex_for_device(key_hex)
+        reply = self.client.send_cli_command(f"set prv.key {key_hex}")
+        if _looks_like_error_reply(reply):
+            raise ValueError(reply)
+        pub = _extract_pubkey_from_reply(reply) or _pubkey_for_ui(key_hex, fallback=self.state.self_info.get("pubkey"))
+        if pub:
+            self._update_self_pubkey_state(pub)
+        return key_hex, pub, reply
+
     def _on_client_connected(self) -> None:
         if self._seen_connected_once:
             self._reset_statistics(reason="reconnect")
@@ -1991,47 +2035,42 @@ class App:
             return {"lat": lat, "lon": lon}
 
         if name == "identity_set_key":
-            key_hex = _require_private_key_hex(args.get("private_key", ""))
-            self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
-            self._update_self_pubkey_state(key_hex[64:])
-            self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
-            self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
+            key_hex = _sanitize_private_key_hex_for_device(str(args.get("private_key", "")))
+            applied = self._apply_companion_private_key(key_hex)
+            pub = _pubkey_for_ui(applied, fallback=self.state.self_info.get("pubkey"))
             return {
                 "queued": True,
-                "message": "Private key import queued.",
-                "new_pubkey": key_hex[64:],
+                "message": "Private key updated and verified on device.",
+                "new_pubkey": pub,
             }
 
         if name == "identity_load_key":
             key_hex = self.client.request_private_key(timeout=4.0)
+            pub = _pubkey_for_ui(key_hex, fallback=self.state.self_info.get("pubkey"))
             return {
                 "private_key": key_hex,
-                "pubkey": key_hex[64:],
+                "pubkey": pub,
                 "message": "Loaded current private key from device.",
             }
 
         if name == "identity_regenerate":
-            key_hex = _generate_private_key_hex()
-            self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
-            self._update_self_pubkey_state(key_hex[64:])
-            self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
-            self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
+            key_hex = _generated_device_key_hex()
+            applied = self._apply_companion_private_key(key_hex)
+            pub = _pubkey_for_ui(applied, fallback=self.state.self_info.get("pubkey"))
             return {
                 "queued": True,
-                "message": "New private key generated and import queued.",
-                "new_pubkey": key_hex[64:],
+                "message": "New private key generated and verified on device.",
+                "new_pubkey": pub,
             }
 
         if name == "identity_renew_public_key":
-            key_hex = _generate_private_key_hex()
-            self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
-            self._update_self_pubkey_state(key_hex[64:])
-            self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
-            self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
+            key_hex = _generated_device_key_hex()
+            applied = self._apply_companion_private_key(key_hex)
+            pub = _pubkey_for_ui(applied, fallback=self.state.self_info.get("pubkey"))
             return {
                 "queued": True,
-                "message": "New keypair generated and queued. Public key will change.",
-                "new_pubkey": key_hex[64:],
+                "message": "New keypair generated and verified on device.",
+                "new_pubkey": pub,
             }
 
         if name == "rxlog":
@@ -2224,13 +2263,11 @@ class App:
             return {"lat": lat, "lon": lon, "reply": [reply_lat, reply_lon]}
 
         if name == "identity_set_key":
-            key_hex = _require_private_key_hex(args.get("private_key", ""))
-            reply = self.client.send_cli_command(f"set prv.key {key_hex}")
-            self._update_self_pubkey_state(key_hex[64:])
+            key_hex, pub, reply = self._apply_repeater_private_key(str(args.get("private_key", "")))
             return {
                 "reply": reply,
-                "message": "Identity key updated. Reboot required to apply.",
-                "new_pubkey": key_hex[64:],
+                "message": "Identity key saved. Reboot required to apply runtime identity.",
+                "new_pubkey": pub,
             }
 
         if name == "identity_load_key":
@@ -2239,30 +2276,27 @@ class App:
             if not match:
                 raise ValueError("unable to read private key from device")
             key_hex = match.group(1).lower()
+            pub = _pubkey_for_ui(key_hex, fallback=self.state.self_info.get("pubkey"))
             return {
                 "private_key": key_hex,
-                "pubkey": key_hex[64:],
+                "pubkey": pub,
                 "message": "Loaded current private key from device.",
             }
 
         if name == "identity_regenerate":
-            key_hex = _generate_private_key_hex()
-            reply = self.client.send_cli_command(f"set prv.key {key_hex}")
-            self._update_self_pubkey_state(key_hex[64:])
+            key_hex, pub, reply = self._apply_repeater_private_key(_generated_device_key_hex())
             return {
                 "reply": reply,
-                "message": "New identity key generated. Reboot required to apply.",
-                "new_pubkey": key_hex[64:],
+                "message": "New identity key generated and saved. Reboot required to apply runtime identity.",
+                "new_pubkey": pub,
             }
 
         if name == "identity_renew_public_key":
-            key_hex = _generate_private_key_hex()
-            reply = self.client.send_cli_command(f"set prv.key {key_hex}")
-            self._update_self_pubkey_state(key_hex[64:])
+            key_hex, pub, reply = self._apply_repeater_private_key(_generated_device_key_hex())
             return {
                 "reply": reply,
-                "message": "New keypair generated. Reboot required to apply; public key will change.",
-                "new_pubkey": key_hex[64:],
+                "message": "New keypair generated and saved. Reboot required to apply runtime identity.",
+                "new_pubkey": pub,
             }
 
         if name == "clear_stats":
