@@ -1942,6 +1942,23 @@ function wireUi() {
     setOutput('companion-cfg-output', d?.ok ? `✓ Time synced: ${new Date().toLocaleString()}` : `Error: ${d?.error}`);
   });
 
+  document.getElementById('btn-copy-pubkey')?.addEventListener('click', async () => {
+    const snap = app.snap || {};
+    const si = snap.self_info || {};
+    const di = snap.device_info || {};
+    const pubkey = String(si.pubkey || si.public_key || di.pubkey || di.public_key || '').trim();
+    if (!/^[0-9a-fA-F]{64}$/.test(pubkey)) {
+      setOutput('companion-cfg-output', 'No valid public key available yet. Try Refresh.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(pubkey.toLowerCase());
+      setOutput('companion-cfg-output', '✓ Public key copied to clipboard');
+    } catch (err) {
+      setOutput('companion-cfg-output', `Clipboard error: ${err?.message || err}`);
+    }
+  });
+
   // ── Messages (DM) tab ─────────────────────────────────
   // Contact list click (delegated)
   document.getElementById('dm-contact-list')?.addEventListener('click', e => {
