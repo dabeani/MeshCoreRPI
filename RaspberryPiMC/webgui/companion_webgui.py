@@ -718,6 +718,7 @@ class CompanionClient:
         state: MeshState,
         bus: EventBus,
         on_connected: Callable[[], None] | None = None,
+        on_uptime_update: Callable[[int], None] | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -734,6 +735,7 @@ class CompanionClient:
         self._private_key_event = threading.Event()
         self._private_key_lock = threading.Lock()
         self._last_private_key_hex: str | None = None
+        self.on_uptime_update = on_uptime_update
 
     def _frame_out(self, payload: bytes) -> bytes:
         return b"<" + struct.pack("<H", len(payload)) + payload
@@ -1001,12 +1003,18 @@ class CompanionClient:
             return
         subtype = payload[1]
         if subtype == STATS_TYPE_CORE and len(payload) >= 11:
-            self.state.stats["core"] = {
+            core_stats = {
                 "battery_mv": struct.unpack_from("<H", payload, 2)[0],
                 "uptime_secs": struct.unpack_from("<I", payload, 4)[0],
                 "errors": struct.unpack_from("<H", payload, 8)[0],
                 "queue_len": payload[10],
             }
+            self.state.stats["core"] = core_stats
+            if self.on_uptime_update:
+                try:
+                    self.on_uptime_update(int(core_stats.get("uptime_secs", 0)))
+                except Exception:
+                    pass
         elif subtype == STATS_TYPE_RADIO and len(payload) >= 14:
             self.state.stats["radio"] = {
                 "noise_floor": struct.unpack_from("<h", payload, 2)[0],
@@ -1211,6 +1219,7 @@ class RepeaterClient:
         state: MeshState,
         bus: EventBus,
         on_connected: Callable[[], None] | None = None,
+        on_uptime_update: Callable[[int], None] | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -1224,6 +1233,7 @@ class RepeaterClient:
         self._prev_tx: int = 0
         self._logging_started = False
         self.on_connected = on_connected
+        self.on_uptime_update = on_uptime_update
         self._was_connected = False
 
     def _close(self) -> None:
@@ -1303,6 +1313,11 @@ class RepeaterClient:
         data = _parse_json_text(raw)
         if data:
             self.state.stats["core"] = data
+            if self.on_uptime_update:
+                try:
+                    self.on_uptime_update(int(data.get("uptime_secs", 0)))
+                except Exception:
+                    pass
             battery_mv = data.get("battery_mv")
             if isinstance(battery_mv, int):
                 self.state.battery = {"battery_mv": battery_mv}
@@ -1664,6 +1679,7 @@ class App:
             "message_store_payload_bytes": 0,
             "message_store_disk_bytes": 0,
         }
+        self._last_device_uptime_secs: int | None = None
         self.message_store: MessageStore | None = None
         self._seen_connected_once = False
         self._load_settings()
@@ -1683,6 +1699,7 @@ class App:
                 self.state,
                 self.bus,
                 on_connected=self._on_client_connected,
+                on_uptime_update=self._handle_device_uptime,
             )
         elif role == "repeater":
             self.client = RepeaterClient(
@@ -1691,6 +1708,7 @@ class App:
                 self.state,
                 self.bus,
                 on_connected=self._on_client_connected,
+                on_uptime_update=self._handle_device_uptime,
             )
         else:
             raise ValueError(f"unsupported role: {role}")
@@ -1818,7 +1836,7 @@ class App:
 
     def _on_client_connected(self) -> None:
         if self._seen_connected_once:
-            self._reset_statistics_after_reconnect()
+            self._reset_statistics(reason="reconnect")
         else:
             self._seen_connected_once = True
 
@@ -1826,7 +1844,7 @@ class App:
             return
         self._sync_time_from_rpi(source="connect")
 
-    def _reset_statistics_after_reconnect(self) -> None:
+    def _reset_statistics(self, reason: str = "reconnect") -> None:
         with self.state._lock:
             self.state.stats = {"core": {}, "radio": {}, "packets": {}}
             self.state.battery = {}
@@ -1839,8 +1857,30 @@ class App:
 
         # Reset packet-log based statistics as well.
         self._clear_log_history()
-        self.state.add_event("stats_reset", {"reason": "reconnect"})
+        self.state.add_event("stats_reset", {"reason": reason})
         self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+
+    def _handle_device_uptime(self, uptime_secs: int) -> None:
+        try:
+            uptime = int(uptime_secs)
+        except (TypeError, ValueError):
+            return
+        if uptime <= 0:
+            return
+
+        prev = self._last_device_uptime_secs
+        self._last_device_uptime_secs = uptime
+
+        # First observed uptime in this web session: if device just booted,
+        # ensure packet-log/stat views start from zero.
+        if prev is None:
+            if uptime <= 180:
+                self._reset_statistics(reason="device_reboot")
+            return
+
+        # Uptime rolled over (device reboot while webgui kept running).
+        if uptime + 30 < prev:
+            self._reset_statistics(reason="device_reboot")
 
     def _clear_log_history(self) -> None:
         for p in _packet_log_candidate_paths():
