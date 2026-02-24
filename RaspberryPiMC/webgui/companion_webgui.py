@@ -37,6 +37,7 @@ CMD_SET_ADVERT_LATLON = 14
 CMD_REMOVE_CONTACT = 15
 CMD_GET_BATT_AND_STORAGE = 20
 CMD_DEVICE_QUERY = 22
+CMD_EXPORT_PRIVATE_KEY = 23
 CMD_IMPORT_PRIVATE_KEY = 24
 CMD_GET_STATS = 56
 CMD_GET_CHANNEL = 0x1F
@@ -55,6 +56,7 @@ RESP_CODE_CHANNEL_MSG = 0x08
 RESP_CODE_NO_MORE_MSGS = 0x0A
 RESP_CODE_BATT_AND_STORAGE = 12
 RESP_CODE_DEVICE_INFO = 13
+RESP_CODE_PRIVATE_KEY = 14
 RESP_CODE_CONTACT_MSG_V3 = 0x10
 RESP_CODE_CHANNEL_MSG_V3 = 0x11
 RESP_CODE_CHANNEL_INFO = 0x12
@@ -566,6 +568,9 @@ class CompanionClient:
         self.on_connected = on_connected
         self._was_connected = False
         self._pending_ack_ids: list[str] = []  # msg_ids awaiting RESP_CODE_MSG_SENT
+        self._private_key_event = threading.Event()
+        self._private_key_lock = threading.Lock()
+        self._last_private_key_hex: str | None = None
 
     def _frame_out(self, payload: bytes) -> bytes:
         return b"<" + struct.pack("<H", len(payload)) + payload
@@ -581,6 +586,19 @@ class CompanionClient:
                 self.sock.sendall(frame)
             except OSError:
                 self._close()
+
+    def request_private_key(self, timeout: float = 3.0) -> str:
+        with self._private_key_lock:
+            self._last_private_key_hex = None
+            self._private_key_event.clear()
+        self.send_cmd(bytes([CMD_EXPORT_PRIVATE_KEY]))
+        if not self._private_key_event.wait(timeout):
+            raise TimeoutError("private key export timed out")
+        with self._private_key_lock:
+            key_hex = self._last_private_key_hex
+        if not key_hex:
+            raise ValueError("private key export failed")
+        return key_hex
 
     def _close(self) -> None:
         if self.sock is not None:
@@ -851,6 +869,14 @@ class CompanionClient:
                 "recv_errors": struct.unpack_from("<I", payload, 26)[0],
             }
 
+    def _parse_private_key(self, payload: bytes) -> None:
+        if len(payload) < 65:
+            return
+        key_hex = payload[1:65].hex()
+        with self._private_key_lock:
+            self._last_private_key_hex = key_hex
+            self._private_key_event.set()
+
     def _handle_payload(self, payload: bytes) -> None:
         if not payload:
             return
@@ -890,6 +916,8 @@ class CompanionClient:
             self._parse_battery(payload)
         elif payload_type == RESP_CODE_STATS:
             self._parse_stats(payload)
+        elif payload_type == RESP_CODE_PRIVATE_KEY:
+            self._parse_private_key(payload)
         elif payload_type == RESP_CODE_CHANNEL_INFO:
             self._parse_channel_info(payload)
         elif payload_type in (RESP_CODE_CHANNEL_MSG, RESP_CODE_CHANNEL_MSG_V3):
@@ -1699,6 +1727,15 @@ class App:
             return {
                 "queued": True,
                 "message": "Private key import queued.",
+                "new_pubkey": key_hex[64:],
+            }
+
+        if name == "identity_load_key":
+            key_hex = self.client.request_private_key(timeout=4.0)
+            return {
+                "private_key": key_hex,
+                "pubkey": key_hex[64:],
+                "message": "Loaded current private key from device.",
             }
 
         if name == "identity_regenerate":
@@ -1709,6 +1746,18 @@ class App:
             return {
                 "queued": True,
                 "message": "New private key generated and import queued.",
+                "new_pubkey": key_hex[64:],
+            }
+
+        if name == "identity_renew_public_key":
+            key_hex = _generate_private_key_hex()
+            self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
+            self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
+            self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
+            return {
+                "queued": True,
+                "message": "New keypair generated and queued. Public key will change.",
+                "new_pubkey": key_hex[64:],
             }
 
         if name == "rxlog":
@@ -1909,6 +1958,19 @@ class App:
             return {
                 "reply": reply,
                 "message": "Identity key updated. Reboot required to apply.",
+                "new_pubkey": key_hex[64:],
+            }
+
+        if name == "identity_load_key":
+            reply = self.client.send_cli_command("get prv.key")
+            match = re.search(r"([0-9a-fA-F]{128})", reply)
+            if not match:
+                raise ValueError("unable to read private key from device")
+            key_hex = match.group(1).lower()
+            return {
+                "private_key": key_hex,
+                "pubkey": key_hex[64:],
+                "message": "Loaded current private key from device.",
             }
 
         if name == "identity_regenerate":
@@ -1918,6 +1980,17 @@ class App:
             return {
                 "reply": reply,
                 "message": "New identity key generated. Reboot required to apply.",
+                "new_pubkey": key_hex[64:],
+            }
+
+        if name == "identity_renew_public_key":
+            key_hex = _generate_private_key_hex()
+            reply = self.client.send_cli_command(f"set prv.key {key_hex}")
+            self.client.refresh(full=True)
+            return {
+                "reply": reply,
+                "message": "New keypair generated. Reboot required to apply; public key will change.",
+                "new_pubkey": key_hex[64:],
             }
 
         if name == "clear_stats":

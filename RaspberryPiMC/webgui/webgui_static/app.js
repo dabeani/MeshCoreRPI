@@ -1856,12 +1856,39 @@ function wireUi() {
     if (d?.ok) e.target.reset();
   });
 
+  document.getElementById('btn-identity-load')?.addEventListener('click', async () => {
+    const d = await sendCommand('identity_load_key');
+    const payload = d?.payload || {};
+    if (!d?.ok) {
+      setOutput('identity-key-output', `Error: ${d?.error || 'unknown'}`);
+      return;
+    }
+    const key = String(payload.private_key || '').toLowerCase();
+    const input = document.querySelector('#identity-key-form input[name="private_key"]');
+    if (input && /^[0-9a-f]{128}$/.test(key)) {
+      input.value = key;
+    }
+    const pub = payload.pubkey ? ` Public: ${payload.pubkey.slice(0, 16)}…` : '';
+    setOutput('identity-key-output', `${payload.message || 'Loaded current private key.'}${pub}`);
+  });
+
+  document.getElementById('btn-identity-renew-public')?.addEventListener('click', async () => {
+    if (!confirm('Generate and apply a new keypair to renew the public key?')) return;
+    const d = await sendCommand('identity_renew_public_key');
+    const payload = d?.payload || {};
+    const pub = payload.new_pubkey ? ` New public key: ${payload.new_pubkey.slice(0, 16)}…` : '';
+    setOutput('identity-key-output', d?.ok
+      ? `${payload.message || 'Public key renewal queued.'}${pub}`
+      : `Error: ${d?.error || 'unknown'}`);
+  });
+
   document.getElementById('btn-identity-regenerate')?.addEventListener('click', async () => {
     if (!confirm('Generate and apply a new identity key now?')) return;
     const d = await sendCommand('identity_regenerate');
     const payload = d?.payload || {};
+    const pub = payload.new_pubkey ? ` New public key: ${payload.new_pubkey.slice(0, 16)}…` : '';
     setOutput('identity-key-output', d?.ok
-      ? (payload.message || payload.reply || 'New key generated and queued.')
+      ? `${payload.message || payload.reply || 'New key generated and queued.'}${pub}`
       : `Error: ${d?.error || 'unknown'}`);
   });
 
