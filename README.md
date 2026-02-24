@@ -7,14 +7,14 @@ Important: Use at your own risk. You, the device owner, are responsible for any 
 With a Waveshare LoRa HAT on Raspberry Pi, this fork (based on MeshCore `v1.13.0`) can build and run native MeshCore:
 Tested with the following LoRa HAT: https://www.amazon.de/dp/B0C61XFGHC?ref=ppx_yo2ov_dt_b_fed_asin_title
 
-
-- Repeater
-- Companion
+Important to know:
+- Default you can only use `Repeater` **OR** `Companion`.
+- If you are crazy like me, you could use my `spi-bridge` (create multiple VIRTUAL-spi devices out of one HW-spi) and start `Repeater` **AND** `Companion` on the same Raspberry PI :D. Here you go for the SPI-Bridge: https://github.com/dabeani/RPI_spi-bridge
 
 Current status:
 
-- Repeater is working.
-- From Mobile Phone to Companion via Ethernet works
+- Repeater is working fine.
+- Connect to Companion from Mobile Phone via Ethernet, BLE untestet until now.
 
 Reference hardware settings (recommended to mirror in env files):
 

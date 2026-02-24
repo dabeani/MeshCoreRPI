@@ -22,6 +22,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 _WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+_LINK_STALE_TIMEOUT_SECS = 20.0
 
 CMD_APP_START = 1
 CMD_SEND_TXT_MSG = 2
@@ -500,6 +501,7 @@ class CompanionClient:
         self.sock = None
         self.recv_buf.clear()
         self.state.set_connected(False)
+        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
 
     def _connect(self) -> bool:
         if self.sock is not None:
@@ -866,6 +868,13 @@ class CompanionClient:
         while not self.stop_event.is_set():
             if self._connect():
                 self._recv()
+                with self.state._lock:
+                    last_frame_at = float(self.state.last_frame_at or 0.0)
+                if last_frame_at > 0 and (time.time() - last_frame_at) > _LINK_STALE_TIMEOUT_SECS:
+                    self.state.add_event("error", {"message": "companion link timeout"})
+                    self._close()
+                    time.sleep(0.25)
+                    continue
                 poll_counter += 1
                 if poll_counter % 40 == 0:
                     # Expire outbound messages that never received an ACK (>15 s)
@@ -931,6 +940,7 @@ class RepeaterClient:
         self.sock = None
         self.recv_buf.clear()
         self.state.set_connected(False)
+        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
 
     def _connect(self) -> bool:
         if self.sock is not None:
@@ -1167,6 +1177,13 @@ class RepeaterClient:
                 if self._connect():
                     cycle += 1
                     self.refresh(full=(cycle % 12 == 1))
+                    with self.state._lock:
+                        last_frame_at = float(self.state.last_frame_at or 0.0)
+                    if last_frame_at > 0 and (time.time() - last_frame_at) > _LINK_STALE_TIMEOUT_SECS:
+                        self.state.add_event("error", {"message": "repeater link timeout"})
+                        self._close()
+                        time.sleep(0.5)
+                        continue
                     self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             except Exception as ex:
                 self.state.add_event("error", {"message": str(ex)})

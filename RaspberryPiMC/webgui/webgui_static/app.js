@@ -147,8 +147,13 @@ function updateWsStatusPanel() {
   const lastEl = document.getElementById('ws-last-msg');
   if (!stateEl || !rxEl || !txEl || !latEl || !lastEl) return;
 
-  stateEl.textContent = app.wsConnected ? 'connected' : 'offline';
-  stateEl.className = `badge ${app.wsConnected ? 'ok' : 'err'}`;
+  const now = Date.now();
+  const wsFresh = app.wsLastMsgAt > 0 ? (now - app.wsLastMsgAt) < 25000 : app.wsConnected;
+  const backendConnected = Boolean(app.snap?.connected);
+  const wsHealthy = app.wsConnected && wsFresh && backendConnected;
+
+  stateEl.textContent = wsHealthy ? 'connected' : 'offline';
+  stateEl.className = `badge ${wsHealthy ? 'ok' : 'err'}`;
 
   rxEl.textContent = `RX events: ${app.wsRxCount}`;
   txEl.textContent = `TX commands: ${app.wsTxCount}`;
@@ -157,11 +162,17 @@ function updateWsStatusPanel() {
   latEl.textContent = latestLatency == null ? 'Latency: –' : `Latency: ${latestLatency} ms`;
 
   if (app.wsLastMsgAt > 0) {
-    const ageMs = Math.max(0, Date.now() - app.wsLastMsgAt);
+    const ageMs = Math.max(0, now - app.wsLastMsgAt);
     const ageSec = Math.floor(ageMs / 1000);
     lastEl.textContent = `Last message: ${ageSec}s ago`;
   } else {
     lastEl.textContent = 'Last message: –';
+  }
+
+  const connBadge = document.getElementById('conn-badge');
+  if (connBadge && !wsFresh) {
+    connBadge.textContent = 'offline';
+    connBadge.className = 'badge err';
   }
 
   drawChart(document.getElementById('ws-latency-chart'), app.wsLatencyTs, [
@@ -2045,6 +2056,7 @@ function initPaneResizers() {
           : (moveEv.clientX - layoutRect.left - 11);
         const width = Math.max(min, Math.min(max, Math.round(raw)));
         document.documentElement.style.setProperty(cssVar, `${width}px`);
+        window.localStorage.setItem(key, String(width));
       };
 
       const onUp = () => {
@@ -2056,10 +2068,12 @@ function initPaneResizers() {
         }
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
       };
 
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
     });
   });
 }
