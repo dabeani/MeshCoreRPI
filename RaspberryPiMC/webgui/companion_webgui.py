@@ -1852,20 +1852,26 @@ class App:
             self.state.self_info = info
         self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
 
-    def _apply_companion_private_key(self, key_hex: str) -> str:
+    def _apply_companion_private_key(self, key_hex: str) -> tuple[str, bool]:
         assert isinstance(self.client, CompanionClient)
         key_hex = _sanitize_private_key_hex_for_device(key_hex)
         self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
-        time.sleep(0.15)
-        read_back = self.client.request_private_key(timeout=4.5)
-        if not _private_key_scalar_matches(read_back, key_hex):
-            raise ValueError("device rejected private key (format mismatch)")
+        verified = False
+        try:
+            time.sleep(0.15)
+            read_back = self.client.request_private_key(timeout=4.5)
+            if not _private_key_scalar_matches(read_back, key_hex):
+                raise ValueError("device rejected private key (format mismatch)")
+            verified = True
+        except TimeoutError:
+            # Some builds disable private-key export; keep import functional.
+            verified = False
         pub = _pubkey_for_ui(key_hex, fallback=self.state.self_info.get("pubkey"))
         if pub:
             self._update_self_pubkey_state(pub)
         self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
         self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
-        return key_hex
+        return key_hex, verified
 
     def _apply_repeater_private_key(self, key_hex: str) -> tuple[str, str | None, str]:
         assert isinstance(self.client, RepeaterClient)
@@ -2036,12 +2042,17 @@ class App:
 
         if name == "identity_set_key":
             key_hex = _sanitize_private_key_hex_for_device(str(args.get("private_key", "")))
-            applied = self._apply_companion_private_key(key_hex)
+            applied, verified = self._apply_companion_private_key(key_hex)
             pub = _pubkey_for_ui(applied, fallback=self.state.self_info.get("pubkey"))
             return {
                 "queued": True,
-                "message": "Private key updated and verified on device.",
+                "message": (
+                    "Private key updated and verified on device."
+                    if verified
+                    else "Private key updated. Verification unavailable on this build."
+                ),
                 "new_pubkey": pub,
+                "verified": verified,
             }
 
         if name == "identity_load_key":
@@ -2055,22 +2066,32 @@ class App:
 
         if name == "identity_regenerate":
             key_hex = _generated_device_key_hex()
-            applied = self._apply_companion_private_key(key_hex)
+            applied, verified = self._apply_companion_private_key(key_hex)
             pub = _pubkey_for_ui(applied, fallback=self.state.self_info.get("pubkey"))
             return {
                 "queued": True,
-                "message": "New private key generated and verified on device.",
+                "message": (
+                    "New private key generated and verified on device."
+                    if verified
+                    else "New private key generated. Verification unavailable on this build."
+                ),
                 "new_pubkey": pub,
+                "verified": verified,
             }
 
         if name == "identity_renew_public_key":
             key_hex = _generated_device_key_hex()
-            applied = self._apply_companion_private_key(key_hex)
+            applied, verified = self._apply_companion_private_key(key_hex)
             pub = _pubkey_for_ui(applied, fallback=self.state.self_info.get("pubkey"))
             return {
                 "queued": True,
-                "message": "New keypair generated and verified on device.",
+                "message": (
+                    "New keypair generated and verified on device."
+                    if verified
+                    else "New keypair generated. Verification unavailable on this build."
+                ),
                 "new_pubkey": pub,
+                "verified": verified,
             }
 
         if name == "rxlog":
