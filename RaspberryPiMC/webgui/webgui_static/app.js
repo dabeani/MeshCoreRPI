@@ -1662,7 +1662,13 @@ function renderAll(snap) {
   if (infoEls.length) {
     const si = snap.self_info  || {};
     const di = snap.device_info || {};
+    const settings = snap.settings || {};
     const selfPubkey = si.pubkey || si.public_key || di.pubkey || di.public_key || '–';
+    const lastSyncEpoch = Number(settings.last_time_sync_epoch || 0);
+    const lastSyncSource = settings.last_time_sync_source || '–';
+    const lastSyncStr = lastSyncEpoch > 0
+      ? `${new Date(lastSyncEpoch * 1000).toLocaleString()} (${lastSyncSource})`
+      : '–';
     const infoText = [
       `Name     : ${si.name    || '–'}`,
       `Pubkey   : ${selfPubkey}`,
@@ -1670,6 +1676,7 @@ function renderAll(snap) {
       `Firmware : ${di.version || '–'}`,
       `Freq     : ${si.radio_freq_khz  ? (si.radio_freq_khz / 1000).toFixed(3) + ' MHz' : '–'}`,
       `TX Power : ${si.tx_power_db != null ? si.tx_power_db + ' dB' : '–'}`,
+      `Last Sync: ${lastSyncStr}`,
     ].join('\n');
     infoEls.forEach((el) => { el.textContent = infoText; });
   }

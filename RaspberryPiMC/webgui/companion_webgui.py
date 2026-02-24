@@ -1455,8 +1455,12 @@ class App:
         self.settings: dict[str, Any] = {
             "auto_sync_time": False,
         }
+        self.runtime_settings: dict[str, Any] = {
+            "last_time_sync_epoch": 0,
+            "last_time_sync_source": "",
+        }
         self._load_settings()
-        self.state.settings = dict(self.settings)
+        self._refresh_state_settings()
         if role == "companion":
             self.client: CompanionClient | RepeaterClient = CompanionClient(
                 companion_host,
@@ -1506,20 +1510,37 @@ class App:
 
     def _set_auto_sync_time(self, enabled: bool) -> None:
         self.settings["auto_sync_time"] = bool(enabled)
-        self.state.settings = dict(self.settings)
+        self._refresh_state_settings()
         self._save_settings()
         self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
 
-    def _sync_time_from_rpi(self, source: str = "auto") -> None:
+    def _refresh_state_settings(self) -> None:
+        merged = dict(self.settings)
+        merged.update(self.runtime_settings)
+        self.state.settings = merged
+
+    def _sync_time_from_rpi(self, source: str = "auto") -> dict[str, Any]:
         now = int(time.time())
+        reply: str | None = None
         if self.role == "companion":
             assert isinstance(self.client, CompanionClient)
             self.client.send_cmd(bytes([CMD_SET_DEVICE_TIME]) + struct.pack("<I", now))
-            self.state.add_event("sync_time_auto", {"epoch": now, "source": source})
-            return
-        assert isinstance(self.client, RepeaterClient)
-        reply = self.client.send_cli_command(f"time {now}")
-        self.state.add_event("sync_time_auto", {"epoch": now, "source": source, "reply": reply})
+        else:
+            assert isinstance(self.client, RepeaterClient)
+            reply = self.client.send_cli_command(f"time {now}")
+
+        self.runtime_settings["last_time_sync_epoch"] = now
+        self.runtime_settings["last_time_sync_source"] = source
+        self._refresh_state_settings()
+        event_payload: dict[str, Any] = {"epoch": now, "source": source}
+        if reply is not None:
+            event_payload["reply"] = reply
+        self.state.add_event("sync_time", event_payload)
+        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+        result = {"epoch": now, "source": source}
+        if reply is not None:
+            result["reply"] = reply
+        return result
 
     def _on_client_connected(self) -> None:
         if not _to_bool(self.settings.get("auto_sync_time", False)):
@@ -1619,9 +1640,7 @@ class App:
             return {"queued": True}
 
         if name == "sync_time":
-            now = int(time.time())
-            self.client.send_cmd(bytes([CMD_SET_DEVICE_TIME]) + struct.pack("<I", now))
-            return {"epoch": now}
+            return self._sync_time_from_rpi(source="manual")
 
         if name == "set_name":
             raw = str(args.get("name", "")).encode("utf-8")[:31]
@@ -1829,10 +1848,7 @@ class App:
             return {"reply": reply}
 
         if name == "sync_time":
-            now = int(time.time())
-            reply = self.client.send_cli_command(f"time {now}")
-            self.state.add_event("command", {"name": "time", "reply": reply})
-            return {"epoch": now, "reply": reply}
+            return self._sync_time_from_rpi(source="manual")
 
         if name == "set_name":
             raw_name = str(args.get("name", "")).strip()
