@@ -1061,6 +1061,7 @@ void MyMesh::setTxPower(int8_t power_dbm) {
 
 void MyMesh::formatNeighborsReply(char *reply) {
   char *dp = reply;
+  constexpr size_t MAX_REPLY_CHARS = 1000;
 
 #if MAX_NEIGHBOURS
   // create copy of neighbours list, skipping empty entries so we can sort it separately from main list
@@ -1079,11 +1080,22 @@ void MyMesh::formatNeighborsReply(char *reply) {
     return a->heard_timestamp > b->heard_timestamp; // desc
   });
 
-  for (int i = 0; i < neighbours_count && dp - reply < 134; i++) {
+  for (int i = 0; i < neighbours_count; i++) {
     NeighbourInfo *neighbour = sorted_neighbours[i];
 
+    size_t used = (size_t)(dp - reply);
+    if (used >= MAX_REPLY_CHARS - 1) {
+      break;
+    }
+
     // add new line if not first item
-    if (i > 0) *dp++ = '\n';
+    if (i > 0) {
+      *dp++ = '\n';
+      used = (size_t)(dp - reply);
+      if (used >= MAX_REPLY_CHARS - 1) {
+        break;
+      }
+    }
 
     char hex[10];
     // get 4 bytes of neighbour id as hex
@@ -1094,15 +1106,42 @@ void MyMesh::formatNeighborsReply(char *reply) {
     const char *name = neighbour->advert_name;
     if (!name || !name[0]) name = "";
 
+    int written = 0;
     if (neighbour->has_advert_loc) {
       const double lat = ((double)neighbour->advert_lat_e6) / 1000000.0;
       const double lon = ((double)neighbour->advert_lon_e6) / 1000000.0;
-      sprintf(dp, "%s:%d:%d:%d:%s:%.6f:%.6f", hex, secs_ago, neighbour->snr, (int)neighbour->advert_type, name, lat, lon);
+      written = snprintf(
+        dp,
+        MAX_REPLY_CHARS - used,
+        "%s:%d:%d:%d:%s:%.6f:%.6f",
+        hex,
+        secs_ago,
+        neighbour->snr,
+        (int)neighbour->advert_type,
+        name,
+        lat,
+        lon
+      );
     } else {
-      sprintf(dp, "%s:%d:%d:%d:%s", hex, secs_ago, neighbour->snr, (int)neighbour->advert_type, name);
+      written = snprintf(
+        dp,
+        MAX_REPLY_CHARS - used,
+        "%s:%d:%d:%d:%s",
+        hex,
+        secs_ago,
+        neighbour->snr,
+        (int)neighbour->advert_type,
+        name
+      );
     }
-    while (*dp)
-      dp++; // find end of string
+    if (written <= 0) {
+      break;
+    }
+    if ((size_t)written >= (MAX_REPLY_CHARS - used)) {
+      dp = reply + MAX_REPLY_CHARS - 1;
+      break;
+    }
+    dp += written;
   }
 #endif
   if (dp == reply) { // no neighbours, need empty response
