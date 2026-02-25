@@ -753,7 +753,33 @@ class CompanionClient:
         self._private_key_event = threading.Event()
         self._private_key_lock = threading.Lock()
         self._last_private_key_hex: str | None = None
+        self._last_history_sample_at = 0.0
         self.on_uptime_update = on_uptime_update
+
+    def _append_history_sample_from_stats(self) -> None:
+        now = time.time()
+        if (now - self._last_history_sample_at) < 1.5:
+            return
+        radio = self.state.stats.get("radio", {})
+        packets = self.state.stats.get("packets", {})
+        core = self.state.stats.get("core", {})
+        if not (radio or packets or core):
+            return
+        self.state.add_history_sample(
+            {
+                "ts": int(now),
+                "rx": int(packets.get("recv", 0)),
+                "tx": int(packets.get("sent", 0)),
+                "drop": int(packets.get("recv_errors", 0)),
+                "queue": int(core.get("queue_len", 0)),
+                "rssi": float(radio.get("last_rssi", 0.0)),
+                "snr": float(radio.get("last_snr", 0.0)),
+                "noise_floor": float(radio.get("noise_floor", 0.0)),
+                "cpu": 0.0,
+                "mem": 0.0,
+            }
+        )
+        self._last_history_sample_at = now
 
     def _frame_out(self, payload: bytes) -> bytes:
         return b"<" + struct.pack("<H", len(payload)) + payload
@@ -1051,6 +1077,7 @@ class CompanionClient:
                 "direct_rx": struct.unpack_from("<I", payload, 22)[0],
                 "recv_errors": struct.unpack_from("<I", payload, 26)[0],
             }
+        self._append_history_sample_from_stats()
 
     def _parse_private_key(self, payload: bytes) -> None:
         if len(payload) < 65:
@@ -1203,23 +1230,6 @@ class CompanionClient:
                     self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_CORE]))
                     self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_RADIO]))
                     self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_PACKETS]))
-                    # Add periodic history sample for companion mode
-                    radio = self.state.stats.get("radio", {})
-                    packets = self.state.stats.get("packets", {})
-                    core = self.state.stats.get("core", {})
-                    if radio or packets or core:
-                        self.state.add_history_sample({
-                            "ts": int(time.time()),
-                            "rx": int(packets.get("recv", 0)),
-                            "tx": int(packets.get("sent", 0)),
-                            "drop": int(packets.get("recv_errors", 0)),
-                            "queue": int(core.get("queue_len", 0)),
-                            "rssi": float(radio.get("last_rssi", 0.0)),
-                            "snr": float(radio.get("last_snr", 0.0)),
-                            "noise_floor": float(radio.get("noise_floor", 0.0)),
-                            "cpu": 0.0,
-                            "mem": 0.0,
-                        })
                 if poll_counter % 200 == 0:
                     self.send_cmd(bytes([CMD_GET_CONTACTS]))
             time.sleep(0.25)
