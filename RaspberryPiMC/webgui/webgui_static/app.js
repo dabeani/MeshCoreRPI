@@ -1542,6 +1542,9 @@ function updateHwStats(stats) {
 // Human-readable metadata for known MeshCore config keys
 const CONFIG_META = {
   // Radio
+  radio_bw: { label: 'Radio Bandwidth', unit: 'kHz', group: 'Radio', desc: 'From radio tuple (bw,sf,cr). Saved back into radio key.' },
+  radio_sf: { label: 'Radio SF',        unit: '',    group: 'Radio', desc: 'From radio tuple (bw,sf,cr). Saved back into radio key.' },
+  radio_cr: { label: 'Radio CR',        unit: '',    group: 'Radio', desc: 'From radio tuple (bw,sf,cr). Saved back into radio key.' },
   freq:    { label: 'Frequency',        unit: 'MHz',  group: 'Radio',    desc: 'LoRa carrier frequency (e.g. 869.525 for EU)' },
   bw:      { label: 'Bandwidth',        unit: 'kHz',  group: 'Radio',    desc: 'Channel bandwidth — 125 / 250 / 500 kHz' },
   sf:      { label: 'Spreading Factor', unit: '',     group: 'Radio',    desc: 'SF7–SF12 · Higher = longer range & slower airtime' },
@@ -1559,6 +1562,44 @@ const CONFIG_META = {
   maxhops: { label: 'Max Hops',         unit: '',     group: 'Routing',  desc: 'Maximum hop count before a packet is discarded' },
 };
 
+const RADIO_SPLIT_KEYS = ['radio_bw', 'radio_sf', 'radio_cr'];
+
+function _parseRadioTuple(raw) {
+  const txt = String(raw ?? '').trim();
+  if (!txt) return [];
+  return txt.split(',').map(v => String(v).trim());
+}
+
+function _getRadioSplitValue(splitKey) {
+  const parts = _parseRadioTuple(app.configValues?.radio);
+  const hasFreq = parts.length >= 4;
+  const idx = hasFreq
+    ? ({ radio_bw: 1, radio_sf: 2, radio_cr: 3 }[splitKey])
+    : ({ radio_bw: 0, radio_sf: 1, radio_cr: 2 }[splitKey]);
+  if (idx == null) return '';
+  return parts[idx] ?? '';
+}
+
+function _composeRadioTupleWithSplitValue(splitKey, value) {
+  const nextVal = String(value ?? '').trim();
+  const parts = _parseRadioTuple(app.configValues?.radio);
+  const hasFreq = parts.length >= 4;
+
+  if (hasFreq) {
+    while (parts.length < 4) parts.push('');
+    const freq = String(app.configValues?.freq ?? '').trim();
+    if (freq) parts[0] = freq;
+    const idx = { radio_bw: 1, radio_sf: 2, radio_cr: 3 }[splitKey];
+    if (idx != null) parts[idx] = nextVal;
+    return parts.join(',');
+  }
+
+  while (parts.length < 3) parts.push('');
+  const idx = { radio_bw: 0, radio_sf: 1, radio_cr: 2 }[splitKey];
+  if (idx != null) parts[idx] = nextVal;
+  return parts.join(',');
+}
+
 function renderConfigRows() {
   const container = document.getElementById('config-groups');
   if (!container) return;
@@ -1571,7 +1612,16 @@ function renderConfigRows() {
   // Group all keys
   const groups = {};
   const GROUP_ORDER = ['Radio', 'Identity', 'Location', 'Routing', 'Other'];
+  const renderKeys = [];
   for (const key of app.configKeys) {
+    if (key === 'radio') {
+      renderKeys.push(...RADIO_SPLIT_KEYS);
+      continue;
+    }
+    renderKeys.push(key);
+  }
+
+  for (const key of renderKeys) {
     const g = CONFIG_META[key]?.group || 'Other';
     if (!groups[g]) groups[g] = [];
     groups[g].push(key);
@@ -1581,7 +1631,9 @@ function renderConfigRows() {
   container.innerHTML = sorted.map(group => {
     const rows = (groups[group] || []).map(key => {
       const meta = CONFIG_META[key];
-      const raw  = app.configValues[key] ?? '';
+      const raw  = RADIO_SPLIT_KEYS.includes(key)
+        ? _getRadioSplitValue(key)
+        : (app.configValues[key] ?? '');
       const v    = String(raw).replace(/</g, '&lt;').replace(/"/g, '&quot;');
       const label   = meta?.label || key;
       const unitHtml = meta?.unit  ? `<span style="color:var(--muted);font-size:10px"> ${meta.unit}</span>` : '';
@@ -1613,6 +1665,26 @@ async function loadRepeaterConfig() {
 }
 
 async function setConfigKey(key, value) {
+  if (RADIO_SPLIT_KEYS.includes(key)) {
+    const composed = _composeRadioTupleWithSplitValue(key, value);
+    const d = await sendCommand('config_set', { key: 'radio', value: composed });
+    if (d?.ok) {
+      app.configValues.radio = composed;
+      const parts = _parseRadioTuple(composed);
+      if (parts.length >= 4 && parts[0]) {
+        const freqSync = await sendCommand('config_set', { key: 'freq', value: parts[0] });
+        if (freqSync?.ok) {
+          app.configValues.freq = parts[0];
+        }
+      }
+      renderConfigRows();
+      setOutput('config-output', `set radio = ${composed}\n${d.payload?.reply || ''}`);
+    } else {
+      setOutput('config-output', `Error: ${d?.error || 'unknown'}`);
+    }
+    return;
+  }
+
   const d = await sendCommand('config_set', { key, value });
   if (d?.ok) {
     app.configValues[key] = value;
@@ -1769,6 +1841,27 @@ function renderAll(snap) {
     if (input && document.activeElement !== input && maxMsgs > 0) {
       input.value = String(maxMsgs);
     }
+  }
+
+  const radioFreqInput = document.querySelector('#cfg-radio-form input[name="freq_mhz"]');
+  const radioBwInput = document.querySelector('#cfg-radio-form input[name="bw_khz"]');
+  const radioSfInput = document.querySelector('#cfg-radio-form-2 input[name="sf"]');
+  const radioCrInput = document.querySelector('#cfg-radio-form-2 input[name="cr"]');
+  if (radioFreqInput && document.activeElement !== radioFreqInput) {
+    const freqKhz = Number(si.radio_freq_khz || 0);
+    if (freqKhz > 0) radioFreqInput.value = (freqKhz / 1000).toFixed(3);
+  }
+  if (radioBwInput && document.activeElement !== radioBwInput) {
+    const bwKhz = Number(si.radio_bw_khz || 0);
+    if (bwKhz > 0) radioBwInput.value = String(bwKhz / 1000);
+  }
+  if (radioSfInput && document.activeElement !== radioSfInput) {
+    const sf = Number(si.radio_sf || 0);
+    if (sf > 0) radioSfInput.value = String(sf);
+  }
+  if (radioCrInput && document.activeElement !== radioCrInput) {
+    const cr = Number(si.radio_cr || 0);
+    if (cr > 0) radioCrInput.value = String(cr);
   }
 
   // Events sidebar
@@ -2119,6 +2212,38 @@ function wireUi() {
     const d = await sendCommand('set_location', { lat, lon });
     setOutput('companion-cfg-output', d?.ok ? `✓ Location set: ${lat.toFixed(6)}, ${lon.toFixed(6)}` : `Error: ${d?.error}`);
     e.target.reset();
+  });
+
+  const submitCompanionRadio = async () => {
+    const freqInput = document.querySelector('#cfg-radio-form input[name="freq_mhz"]');
+    const bwInput = document.querySelector('#cfg-radio-form input[name="bw_khz"]');
+    const sfInput = document.querySelector('#cfg-radio-form-2 input[name="sf"]');
+    const crInput = document.querySelector('#cfg-radio-form-2 input[name="cr"]');
+
+    const freqMhz = parseFloat(freqInput?.value || '');
+    const bwKhz = parseFloat(bwInput?.value || '');
+    const sf = parseInt(sfInput?.value || '', 10);
+    const cr = parseInt(crInput?.value || '', 10);
+
+    if (!isFinite(freqMhz) || !isFinite(bwKhz) || !Number.isFinite(sf) || !Number.isFinite(cr)) {
+      setOutput('companion-cfg-output', 'Invalid radio params. Use freq MHz, bw kHz, sf 5..12, cr 5..8.');
+      return;
+    }
+
+    const d = await sendCommand('set_radio_params', { freq_mhz: freqMhz, bw_khz: bwKhz, sf, cr });
+    setOutput('companion-cfg-output', d?.ok
+      ? `✓ Radio set: ${freqMhz.toFixed(3)} MHz, ${bwKhz} kHz, SF${sf}, CR${cr}`
+      : `Error: ${d?.error || 'unknown'}`);
+  };
+
+  document.getElementById('cfg-radio-form')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    await submitCompanionRadio();
+  });
+
+  document.getElementById('cfg-radio-form-2')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    await submitCompanionRadio();
   });
 
   document.getElementById('btn-advert-cfg')?.addEventListener('click', async () => {

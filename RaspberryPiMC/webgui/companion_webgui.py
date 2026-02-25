@@ -38,6 +38,7 @@ CMD_SET_ADVERT_LATLON = 14
 CMD_REMOVE_CONTACT = 15
 CMD_GET_BATT_AND_STORAGE = 20
 CMD_DEVICE_QUERY = 22
+CMD_SET_RADIO_PARAMS = 11
 CMD_EXPORT_PRIVATE_KEY = 23
 CMD_IMPORT_PRIVATE_KEY = 24
 CMD_GET_STATS = 56
@@ -2049,6 +2050,38 @@ class App:
             lon_i = int(lon * 1_000_000)
             self.client.send_cmd(bytes([CMD_SET_ADVERT_LATLON]) + struct.pack("<ii", lat_i, lon_i))
             return {"lat": lat, "lon": lon}
+
+        if name == "set_radio_params":
+            freq_mhz = float(args.get("freq_mhz"))
+            bw_khz = float(args.get("bw_khz"))
+            sf = int(args.get("sf"))
+            cr = int(args.get("cr"))
+
+            freq_khz = int(round(freq_mhz * 1000.0))
+            bw_hz = int(round(bw_khz * 1000.0))
+
+            if freq_khz < 300000 or freq_khz > 2500000:
+                raise ValueError("freq_mhz out of range")
+            if bw_hz < 7000 or bw_hz > 500000:
+                raise ValueError("bw_khz out of range")
+            if sf < 5 or sf > 12:
+                raise ValueError("sf out of range")
+            if cr < 5 or cr > 8:
+                raise ValueError("cr out of range")
+
+            payload = bytes([CMD_SET_RADIO_PARAMS]) + struct.pack("<IIBB", freq_khz, bw_hz, sf, cr)
+            self.client.send_cmd(payload)
+
+            self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
+            self.client.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_RADIO]))
+
+            return {
+                "queued": True,
+                "freq_mhz": freq_mhz,
+                "bw_khz": bw_khz,
+                "sf": sf,
+                "cr": cr,
+            }
 
         if name == "identity_set_key":
             key_hex = _sanitize_private_key_hex_for_device(str(args.get("private_key", "")))
