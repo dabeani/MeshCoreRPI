@@ -755,6 +755,7 @@ class CompanionClient:
         self._private_key_lock = threading.Lock()
         self._last_private_key_hex: str | None = None
         self._last_history_sample_at = 0.0
+        self._fallback_rx_packets = 0
         self.on_uptime_update = on_uptime_update
 
     def _append_history_sample_from_stats(self) -> None:
@@ -1150,6 +1151,12 @@ class CompanionClient:
             snr = (payload[1] if payload[1] < 128 else payload[1] - 256) / 4.0
             rssi = payload[2] if payload[2] < 128 else payload[2] - 256
             raw = payload[3:]
+            self._fallback_rx_packets += 1
+            packets = dict(self.state.stats.get("packets", {}))
+            current_recv = int(packets.get("recv", 0) or 0)
+            if current_recv < self._fallback_rx_packets:
+                packets["recv"] = self._fallback_rx_packets
+                self.state.stats["packets"] = packets
             if raw:
                 header = raw[0]
                 route_code = header & 0x03
@@ -1866,6 +1873,7 @@ class App:
     def _apply_companion_private_key(self, key_hex: str) -> tuple[str, bool]:
         assert isinstance(self.client, CompanionClient)
         key_hex = _sanitize_private_key_hex_for_device(key_hex)
+        expected_pub = _pubkey_for_ui(key_hex)
         self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(key_hex))
         verified = False
         try:
@@ -1875,8 +1883,19 @@ class App:
                 raise ValueError("device rejected private key (format mismatch)")
             verified = True
         except TimeoutError:
-            # Some builds disable private-key export; keep import functional.
-            verified = False
+            # Some builds disable private-key export; verify via self-info pubkey refresh.
+            verified_by_self_info = False
+            self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
+            deadline = time.time() + 2.0
+            while time.time() < deadline:
+                current_pub = str(self.state.self_info.get("pubkey") or self.state.self_info.get("public_key") or "").lower()
+                if expected_pub and current_pub == expected_pub:
+                    verified_by_self_info = True
+                    break
+                time.sleep(0.08)
+            if expected_pub and not verified_by_self_info:
+                raise ValueError("device did not confirm applied public key")
+            verified = verified_by_self_info
         pub = _pubkey_for_ui(key_hex, fallback=self.state.self_info.get("pubkey"))
         if pub:
             self._update_self_pubkey_state(pub)
