@@ -2071,38 +2071,6 @@ function wireUi() {
     }
   });
 
-  // Quick preset buttons
-  const REGION_PRESETS = {
-    wildcard_flood: [['region_load_named', { name: '*',             flood_flag: 'F' }]],
-    wildcard_only:  [['region_load_named', { name: '*',             flood_flag: ''  }]],
-    europe:   [
-      ['region_load_named', { name: '#Europe',       flood_flag: 'F' }],
-      ['region_put',        { name: '#UK',     parent: '#Europe'       }],
-      ['region_put',        { name: '#France', parent: '#Europe'       }],
-    ],
-    americas: [
-      ['region_load_named', { name: '#NorthAmerica', flood_flag: 'F' }],
-      ['region_put',        { name: '#USA',    parent: '#NorthAmerica' }],
-      ['region_put',        { name: '#Canada', parent: '#NorthAmerica' }],
-    ],
-    apac: [
-      ['region_load_named', { name: '#AsiaPacific',  flood_flag: 'F' }],
-      ['region_put',        { name: '#Australia', parent: '#AsiaPacific' }],
-      ['region_put',        { name: '#Japan',     parent: '#AsiaPacific' }],
-    ],
-  };
-  document.querySelectorAll('.region-preset-btn').forEach(btn =>
-    btn.addEventListener('click', async () => {
-      const preset = REGION_PRESETS[btn.dataset.preset];
-      if (!preset) return;
-      if (!confirm(`Load preset "${btn.dataset.preset}"?\nThis will overwrite current region configuration.`)) return;
-      setRegionStatus('Loading preset…');
-      for (const [cmd, args] of preset) await sendCommand(cmd, args);
-      setRegionStatus('Preset loaded. Click Save to persist.');
-      await refreshRegions();
-    })
-  );
-
   // Raw CLI form
   document.getElementById('raw-form')?.addEventListener('submit', async e => {
     e.preventDefault();
