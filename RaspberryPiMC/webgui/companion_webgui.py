@@ -1896,9 +1896,7 @@ class App:
         return key_hex, pub, reply
 
     def _on_client_connected(self) -> None:
-        if self._seen_connected_once:
-            self._reset_statistics(reason="reconnect")
-        else:
+        if not self._seen_connected_once:
             self._seen_connected_once = True
 
         if not _to_bool(self.settings.get("auto_sync_time", False)):
