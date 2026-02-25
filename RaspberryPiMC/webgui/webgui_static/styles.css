@@ -180,6 +180,11 @@ button:hover { border-color: var(--accent); background: #1f3268; }
 }
 
 /* ─────────────── Charts Tab ─────────────── */
+.charts-live-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0 0 8px 2px;
+}
 .chart-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

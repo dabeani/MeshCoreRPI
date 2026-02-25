@@ -841,9 +841,26 @@ function toDelta(arr) {
   return out;
 }
 
+function updateChartsLiveAge(ts) {
+  const el = document.getElementById('charts-live-age');
+  if (!el) return;
+  if (!Array.isArray(ts) || !ts.length) {
+    el.textContent = 'Last sample: waiting for data…';
+    return;
+  }
+  const last = Number(ts[ts.length - 1] || 0);
+  if (!Number.isFinite(last) || last <= 0) {
+    el.textContent = 'Last sample: –';
+    return;
+  }
+  const ageSec = Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(last));
+  el.textContent = `Last sample: ${ageSec}s ago`;
+}
+
 function renderCharts(snap) {
   const h = snap?.history || {};
   const ts = h.ts || [];
+  updateChartsLiveAge(ts);
 
   // 1. Packet traffic: show per-interval deltas so chart stays "live"
   drawChart(document.getElementById('chart-traffic'), ts, [
