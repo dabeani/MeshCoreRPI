@@ -234,7 +234,11 @@ def _private_key_scalar_matches(a: str, b: str) -> bool:
     return _key_scalar_hex(a) == _key_scalar_hex(b)
 
 
-def _packet_log_candidate_paths() -> list[Path]:
+def _packet_log_candidate_paths(role: str | None = None) -> list[Path]:
+    """Return candidate packet log paths for the given role.
+    Companion uses 'packet_log_companion' so it never conflicts with the
+    repeater's native-CLI-written 'packet_log' when both run on the same Pi.
+    """
     roots: list[Path] = []
     env_root = os.getenv("MESHCORE_DATA_DIR", "").strip()
     if env_root:
@@ -242,15 +246,32 @@ def _packet_log_candidate_paths() -> list[Path]:
     roots.append(Path("/var/lib/raspberrypimc/userdata"))
     roots.append(Path.cwd() / "RaspberryPiMC" / "userdata")
     roots.append(Path(__file__).resolve().parent.parent / "userdata")
-    paths: list[Path] = []
-    for root in roots:
-        paths.append(root / "packet_log")
-    return paths
+    # Companion writes/reads its own log; repeater reads the native CLI log.
+    log_name = "packet_log_companion" if role == "companion" else "packet_log"
+    return [root / log_name for root in roots]
 
 
-def _read_packet_log_tail(lines: int, max_bytes: int = 64 * 1024) -> str:
+_append_packet_log_lock = threading.Lock()
+
+
+def _append_packet_log_line(line: str) -> None:
+    """Append a single line to the companion packet log.
+    Uses a lock so concurrent calls from the companion thread are safe.
+    """
+    for p in _packet_log_candidate_paths(role="companion"):
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with _append_packet_log_lock:
+                with p.open("a", encoding="utf-8") as fh:
+                    fh.write(line + "\n")
+            return
+        except OSError:
+            continue
+
+
+def _read_packet_log_tail(lines: int, max_bytes: int = 64 * 1024, role: str | None = None) -> str:
     lines = max(10, min(5000, int(lines)))
-    for p in _packet_log_candidate_paths():
+    for p in _packet_log_candidate_paths(role=role):
         try:
             if not p.exists() or not p.is_file():
                 continue
@@ -348,10 +369,10 @@ def _compute_packet_header_breakdown_from_text(text: str, source: str = "") -> d
     }
 
 
-def _compute_packet_header_breakdown(max_bytes: int = 4 * 1024 * 1024) -> dict[str, Any]:
+def _compute_packet_header_breakdown(max_bytes: int = 4 * 1024 * 1024, role: str | None = None) -> dict[str, Any]:
     empty = _compute_packet_header_breakdown_from_text("", source="")
 
-    for p in _packet_log_candidate_paths():
+    for p in _packet_log_candidate_paths(role=role):
         try:
             if not p.exists() or not p.is_file():
                 continue
@@ -1243,7 +1264,12 @@ class CompanionClient:
             payload = bytes(self.recv_buf[3:total])
             del self.recv_buf[:total]
             if frame_type == ord(">"):
-                self._handle_payload(payload)
+                try:
+                    self._handle_payload(payload)
+                except Exception as _exc:
+                    # Never let a single bad frame kill the companion thread.
+                    self.state.add_event("error", {"message": f"frame handler: {_exc}"})
+                    self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
 
     def run(self) -> None:
         poll_counter = 0
@@ -2031,7 +2057,7 @@ class App:
             self._reset_statistics(reason="device_reboot")
 
     def _clear_log_history(self) -> None:
-        for p in _packet_log_candidate_paths():
+        for p in _packet_log_candidate_paths(role=self.role):
             try:
                 if p.exists():
                     p.unlink()
@@ -2049,7 +2075,7 @@ class App:
         current_pos = 0
 
         def pick_log_path() -> Path | None:
-            paths = _packet_log_candidate_paths()
+            paths = _packet_log_candidate_paths(role=self.role)
             for candidate in paths:
                 if candidate.exists() and candidate.is_file():
                     return candidate
@@ -2256,14 +2282,14 @@ class App:
             except (TypeError, ValueError):
                 lines = 200
             lines = max(10, min(5000, lines))
-            return {"lines": lines, "text": _read_packet_log_tail(lines)}
+            return {"lines": lines, "text": _read_packet_log_tail(lines, role=self.role)}
 
         if name == "clear_rxlog":
             self._clear_log_history()
             return {"cleared": True}
 
         if name == "header_stats":
-            return _compute_packet_header_breakdown()
+            return _compute_packet_header_breakdown(role=self.role)
 
         if name == "public_msg":
             text = str(args.get("text", "")).encode("utf-8")[:180]
@@ -2550,7 +2576,7 @@ class App:
             return {"reply": reply}
 
         if name == "header_stats":
-            return _compute_packet_header_breakdown()
+            return _compute_packet_header_breakdown(role=self.role)
 
         if name == "config_schema":
             return {
