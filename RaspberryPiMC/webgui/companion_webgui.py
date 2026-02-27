@@ -1224,6 +1224,7 @@ class CompanionClient:
 
     def run(self) -> None:
         poll_counter = 0
+        heartbeat = 0  # always increments — drives unconditional 2.5 s WS heartbeat
         while not self.stop_event.is_set():
             is_connected = self._connect()
             if is_connected and not self._was_connected and self.on_connected:
@@ -1259,6 +1260,8 @@ class CompanionClient:
                         self.state.mark_message_status(msg_id, "failed")
                     if expired_any:
                         self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": now_ts})
+                # Fetch fresh stats every 2.5 s — same cadence as repeater (was % 40 = 10 s)
+                if poll_counter % 10 == 0:
                     self.send_cmd(bytes([CMD_GET_BATT_AND_STORAGE]))
                     self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_CORE]))
                     self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_RADIO]))
@@ -1267,9 +1270,13 @@ class CompanionClient:
                     self.send_cmd(bytes([CMD_GET_CONTACTS]))
                 if poll_counter % 120 == 0:
                     self.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
-                # Publish state periodically so the dashboard stays fresh even during quiet radio
-                if poll_counter % 10 == 0:
-                    self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+
+            # Unconditional heartbeat: push state to every WS client every 2.5 s
+            # regardless of whether the companion device is reachable, so the browser
+            # always refreshes all tabs — matching the repeater's guaranteed cadence.
+            heartbeat += 1
+            if heartbeat % 10 == 0:
+                self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             time.sleep(0.25)
 
     def stop(self) -> None:

@@ -317,6 +317,15 @@ function switchTab(tabName) {
     loadRepeaterConfig();
     refreshRegions();
   }
+
+  // Companion only: request a fresh stats snapshot from the device immediately on
+  // tab switch so all tabs show current data without waiting for the next 2.5 s
+  // heartbeat cycle.  Repeater's refresh() is a heavy synchronous CLI call that
+  // would block on every click; the repeater's 2.5 s loop already delivers fresh
+  // data so no extra nudge is needed there.
+  if (app.snap?.role === 'companion') {
+    sendCommand('refresh').catch(() => {});
+  }
 }
 
 async function refreshCombinedLog() {
