@@ -1881,6 +1881,11 @@ class App:
                         self.settings["auto_sync_time"] = _to_bool(data.get("auto_sync_time"))
                     if "message_store_max" in data:
                         self.settings["message_store_max"] = _to_int(data.get("message_store_max"), 1000, 50, 50000)
+                    if "private_key" in data:
+                        try:
+                            self.settings["private_key"] = _require_private_key_hex(data["private_key"])
+                        except Exception:
+                            pass
                 return
             except Exception:
                 continue
@@ -2013,6 +2018,9 @@ class App:
         pub = _pubkey_for_ui(key_hex, fallback=self.state.self_info.get("pubkey"))
         if pub:
             self._update_self_pubkey_state(pub)
+        # Persist the new private key so it survives service restarts
+        self.settings["private_key"] = key_hex
+        self._save_settings()
         self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
         self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
         return key_hex, verified
@@ -2031,6 +2039,17 @@ class App:
     def _on_client_connected(self) -> None:
         if not self._seen_connected_once:
             self._seen_connected_once = True
+
+        # Re-apply the persisted private key so a service restart doesn't lose
+        # a key that was set via the web UI.  We do this before the time-sync
+        # so the device has the correct identity from the first heartbeat.
+        if self.role == "companion" and isinstance(self.client, CompanionClient):
+            saved_key = str(self.settings.get("private_key") or "").strip().lower()
+            if re.fullmatch(r"[0-9a-f]{128}", saved_key):
+                try:
+                    self.client.send_cmd(bytes([CMD_IMPORT_PRIVATE_KEY]) + bytes.fromhex(saved_key))
+                except Exception:
+                    pass
 
         if not _to_bool(self.settings.get("auto_sync_time", False)):
             return
