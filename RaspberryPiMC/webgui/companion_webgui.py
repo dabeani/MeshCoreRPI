@@ -521,7 +521,14 @@ class MeshState:
                 pass
         return changed
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, history_tail: int | None = None) -> dict[str, Any]:
+        """Return a state dict.
+
+        history_tail:
+          None  – include all history points (default; used for REST / WS-init)
+          0     – omit history entirely (used for event-driven publishes)
+          N > 0 – include only the last N points per series (used for heartbeats)
+        """
         with self._lock:
             contacts = [
                 {
@@ -539,6 +546,12 @@ class MeshState:
                 for c in self.contacts.values()
             ]
             contacts.sort(key=lambda c: c["lastmod"], reverse=True)
+            if history_tail is None:
+                hist: dict[str, list[Any]] = {k: list(v) for k, v in self.history.items()}
+            elif history_tail == 0:
+                hist = {}
+            else:
+                hist = {k: list(v[-history_tail:]) if v else [] for k, v in self.history.items()}
             return {
                 "role": self.role,
                 "started_at": self.started_at,
@@ -553,9 +566,17 @@ class MeshState:
                 "messages": list(self.messages[-300:]),
                 "regions": list(self.regions),
                 "events": list(self.events[-100:]),
-                "history": {k: list(v) for k, v in self.history.items()},
+                "history": hist,
                 "settings": dict(self.settings),
             }
+
+    def snapshot_event(self) -> dict[str, Any]:
+        """Snapshot for event-driven publishes: no history payload."""
+        return self.snapshot(history_tail=0)
+
+    def snapshot_tick(self) -> dict[str, Any]:
+        """Snapshot for periodic heartbeat publishes: last 2 history points only."""
+        return self.snapshot(history_tail=2)
 
 
 def _settings_candidate_paths(role: str | None = None) -> list[Path]:
@@ -843,7 +864,7 @@ class CompanionClient:
         self.sock = None
         self.recv_buf.clear()
         self.state.set_connected(False)
-        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+        self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
 
     def _connect(self) -> bool:
         if self.sock is not None:
@@ -855,7 +876,7 @@ class CompanionClient:
             self.state.set_connected(True)
             self._bootstrap()
             self.state.add_event("connected", {"host": self.host, "port": self.port})
-            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
             self.bus.publish({"type": "connected", "ts": int(time.time())})
             return True
         except OSError:
@@ -1237,7 +1258,7 @@ class CompanionClient:
         )
         _now = time.time()
         if payload_type in _IMMEDIATE_TYPES or (_now - self._last_payload_pub_at) >= 0.5:
-            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(_now)})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(_now)})
             self._last_payload_pub_at = _now
 
     def _recv(self) -> None:
@@ -1269,7 +1290,7 @@ class CompanionClient:
                 except Exception as _exc:
                     # Never let a single bad frame kill the companion thread.
                     self.state.add_event("error", {"message": f"frame handler: {_exc}"})
-                    self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+                    self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
 
     def run(self) -> None:
         poll_counter = 0
@@ -1308,7 +1329,7 @@ class CompanionClient:
                     for msg_id in expired_ids:
                         self.state.mark_message_status(msg_id, "failed")
                     if expired_any:
-                        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": now_ts})
+                        self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": now_ts})
                 # Fetch fresh stats every 2.5 s — same cadence as repeater (was % 40 = 10 s)
                 if poll_counter % 10 == 0:
                     self.send_cmd(bytes([CMD_GET_BATT_AND_STORAGE]))
@@ -1325,7 +1346,7 @@ class CompanionClient:
             # always refreshes all tabs — matching the repeater's guaranteed cadence.
             heartbeat += 1
             if heartbeat % 10 == 0:
-                self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+                self.bus.publish({"type": "state", "payload": self.state.snapshot_tick(), "ts": int(time.time())})
             time.sleep(0.25)
 
     def stop(self) -> None:
@@ -1367,7 +1388,7 @@ class RepeaterClient:
         self.sock = None
         self.recv_buf.clear()
         self.state.set_connected(False)
-        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+        self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
 
     def _connect(self) -> bool:
         if self.sock is not None:
@@ -1378,7 +1399,7 @@ class RepeaterClient:
             self.sock = sock
             self.state.set_connected(True)
             self.state.add_event("connected", {"host": self.host, "port": self.port})
-            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
             self.bus.publish({"type": "connected", "ts": int(time.time())})
             self._logging_started = False
             return True
@@ -1642,7 +1663,7 @@ class RepeaterClient:
                         self._close()
                         time.sleep(0.5)
                         continue
-                    self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+                    self.bus.publish({"type": "state", "payload": self.state.snapshot_tick(), "ts": int(time.time())})
             except Exception as ex:
                 self.state.add_event("error", {"message": str(ex)})
                 self._close()
@@ -1878,7 +1899,7 @@ class App:
         self.settings["auto_sync_time"] = bool(enabled)
         self._refresh_state_settings()
         self._save_settings()
-        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+        self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
 
     def _refresh_state_settings(self) -> None:
         merged = dict(self.settings)
@@ -1928,7 +1949,7 @@ class App:
             if len(self.state.messages) > max_messages:
                 self.state.messages = self.state.messages[-max_messages:]
         self._sync_message_store_stats()
-        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+        self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
         return max_messages
 
     def _sync_time_from_rpi(self, source: str = "auto") -> dict[str, Any]:
@@ -1948,7 +1969,7 @@ class App:
         if reply is not None:
             event_payload["reply"] = reply
         self.state.add_event("sync_time", event_payload)
-        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+        self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
         result = {"epoch": now, "source": source}
         if reply is not None:
             result["reply"] = reply
@@ -1963,7 +1984,7 @@ class App:
             info["pubkey"] = key
             info["public_key"] = key
             self.state.self_info = info
-        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+        self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
 
     def _apply_companion_private_key(self, key_hex: str) -> tuple[str, bool]:
         assert isinstance(self.client, CompanionClient)
@@ -2034,7 +2055,7 @@ class App:
         # Reset packet-log based statistics as well.
         self._clear_log_history()
         self.state.add_event("stats_reset", {"reason": reason})
-        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+        self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
 
     def _handle_device_uptime(self, uptime_secs: int) -> None:
         try:
@@ -2066,7 +2087,7 @@ class App:
                 pass
         with self.state._lock:
             self.state.events = []
-        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+        self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
 
     def _packet_log_watch_loop(self) -> None:
         partial_line = ""
@@ -2324,7 +2345,7 @@ class App:
                     "text": text.decode("utf-8", errors="replace")[:60],
                 },
             )
-            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
             return {"channel": channel, "bytes": len(text)}
 
         if name == "send_direct_msg":
@@ -2366,7 +2387,7 @@ class App:
                     "text": text_raw.decode("utf-8", errors="replace")[:60],
                 },
             )
-            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
             return {"pubkey_prefix": pubkey_hex[:12], "bytes": len(text_raw)}
 
         if name == "contact_remove":
@@ -2389,7 +2410,7 @@ class App:
                 self.state.contacts.pop(target_hex, None)
             self.state.add_event("contact_remove", {"pubkey": target_hex})
             self.client.send_cmd(bytes([CMD_GET_CONTACTS]))
-            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
             return {"pubkey": target_hex, "queued": True}
 
         if name == "get_channels":
@@ -2438,7 +2459,7 @@ class App:
 
         if name == "refresh":
             self.client.refresh(full=True)
-            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
             return {"queued": True}
 
         if name == "advert":
@@ -2713,7 +2734,7 @@ class App:
 
             with self.state._lock:
                 self.state.regions = regions
-            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot_event(), "ts": int(time.time())})
             return {"home": home, "regions": regions}
 
         if name == "set_mode":

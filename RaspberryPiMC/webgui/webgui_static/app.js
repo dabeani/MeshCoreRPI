@@ -41,6 +41,9 @@ const app = {
   wsLatencyTs: [],
   wsLatencyMs: [],
   autoSyncTimePending: null,
+  // Accumulated history — grows client-side so heartbeats only need to send
+  // the latest 2 points instead of the full 720-point series each time.
+  history: {},
 };
 
 // ─── Leaflet map (init early – dashboard is default tab so div is visible) ──
@@ -246,7 +249,7 @@ function renderFooter(snap) {
   const packets = snap.stats?.packets || {};
   const radio   = snap.stats?.radio   || {};
   const core    = snap.stats?.core    || {};
-  const hist    = snap.history        || {};
+  const hist    = (app.history && app.history.ts?.length ? app.history : (snap.history || {}));
 
   // Packet counts
   const rx = packets.recv ?? 0;
@@ -956,7 +959,7 @@ function updateChartsLiveAge(ts) {
 }
 
 function renderCharts(snap) {
-  const h = snap?.history || {};
+  const h = app.history && app.history.ts?.length ? app.history : (snap?.history || {});
   const ts = h.ts || [];
   updateChartsLiveAge(ts);
 
@@ -1072,7 +1075,7 @@ function locateContact(lat, lon) {
 
 // ─── System Charts (dashboard) ───────────────────────
 function renderSystemCharts(snap) {
-  const h  = snap?.history || {};
+  const h  = app.history && app.history.ts?.length ? app.history : (snap?.history || {});
   const ts = h.ts || [];
   drawChart(document.getElementById('sys-chart-cpu'), ts, [
     { label: 'CPU %', data: h.cpu, color: '#38bdf8', fill: true },
@@ -1842,8 +1845,32 @@ function renderRegionList(regions) {
   }).join('');
 }
 
+// ─── History merge ──────────────────────────────────
+// Merge incremental history points from a snapshot delta into app.history.
+// If snap.history is empty or absent the accumulated history is unchanged.
+function _mergeHistory(snap) {
+  const h = snap?.history;
+  if (!h || !h.ts || !h.ts.length) return;
+  if (!app.history.ts || !app.history.ts.length) {
+    // First delivery or reset — replace wholesale
+    app.history = {};
+    for (const k of Object.keys(h)) app.history[k] = [...(h[k] || [])];
+    return;
+  }
+  const lastKnown = app.history.ts[app.history.ts.length - 1];
+  const newIdxs = h.ts.reduce((acc, t, i) => { if (t > lastKnown) acc.push(i); return acc; }, []);
+  if (!newIdxs.length) return;
+  for (const k of Object.keys(h)) {
+    if (!app.history[k]) app.history[k] = [];
+    for (const i of newIdxs) app.history[k].push(h[k][i]);
+    if (app.history[k].length > 720) app.history[k] = app.history[k].slice(-720);
+  }
+}
+
 // ─── Full Render ─────────────────────────────────────
 function renderAll(snap) {
+  // Merge any new history points into the client-side accumulator before rendering
+  _mergeHistory(snap);
   app.lastStateRenderAt = Date.now();
   const prevSnap = app.snap;
   app.snap = snap;
