@@ -1253,6 +1253,8 @@ class CompanionClient:
                     self.send_cmd(bytes([CMD_GET_STATS, STATS_TYPE_PACKETS]))
                 if poll_counter % 200 == 0:
                     self.send_cmd(bytes([CMD_GET_CONTACTS]))
+                if poll_counter % 120 == 0:
+                    self.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
             time.sleep(0.25)
 
     def stop(self) -> None:
@@ -2081,6 +2083,7 @@ class App:
         if name == "set_name":
             raw = str(args.get("name", "")).encode("utf-8")[:31]
             self.client.send_cmd(bytes([CMD_SET_ADVERT_NAME]) + raw)
+            self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
             return {"name": raw.decode("utf-8", errors="ignore")}
 
         if name == "set_location":
@@ -2089,6 +2092,7 @@ class App:
             lat_i = int(lat * 1_000_000)
             lon_i = int(lon * 1_000_000)
             self.client.send_cmd(bytes([CMD_SET_ADVERT_LATLON]) + struct.pack("<ii", lat_i, lon_i))
+            self.client.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
             return {"lat": lat, "lon": lon}
 
         if name == "set_radio_params":
