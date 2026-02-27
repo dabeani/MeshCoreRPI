@@ -192,6 +192,95 @@ function updateWsStatusPanel() {
   drawChart(document.getElementById('ws-latency-chart'), app.wsLatencyTs, [
     { label: 'WS Latency (ms)', data: app.wsLatencyMs, color: '#58a6ff', fill: true },
   ]);
+  renderFooter(app.snap);
+}
+
+// ─── Footer ──────────────────────────────────────────
+function drawFooterSparkline(canvasId, values, strokeColor, fillColor) {
+  const canvas = typeof canvasId === 'string' ? document.getElementById(canvasId) : canvasId;
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth  || canvas.width  || 90;
+  const h = canvas.clientHeight || canvas.height || 24;
+  canvas.width  = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  const pts = (values || []).filter(v => Number.isFinite(v));
+  if (pts.length < 2) return;
+  const min = Math.min(...pts);
+  const max = Math.max(...pts);
+  const range = max - min || 1;
+  const pad = 1;
+  const xy = pts.map((v, i) => [
+    (i / (pts.length - 1)) * (w - 2 * pad) + pad,
+    h - pad - ((v - min) / range) * (h - 2 * pad),
+  ]);
+  ctx.beginPath();
+  ctx.moveTo(xy[0][0], xy[0][1]);
+  for (let i = 1; i < xy.length; i++) ctx.lineTo(xy[i][0], xy[i][1]);
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  if (fillColor) {
+    ctx.lineTo(xy[xy.length - 1][0], h);
+    ctx.lineTo(xy[0][0], h);
+    ctx.closePath();
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+  }
+}
+
+function renderFooter(snap) {
+  // WS status dot
+  const wsHealthy = app.wsConnected && Boolean(snap?.connected);
+  const dot = document.getElementById('ft-ws-dot');
+  const lbl = document.getElementById('ft-ws-label');
+  if (dot) dot.className = 'ft-ws-dot' + (wsHealthy ? ' live' : '');
+  if (lbl) lbl.textContent = wsHealthy ? 'WS: live' : (app.wsConnected ? 'WS: no device' : 'WS: offline');
+
+  if (!snap) return;
+
+  const packets = snap.stats?.packets || {};
+  const radio   = snap.stats?.radio   || {};
+  const core    = snap.stats?.core    || {};
+  const hist    = snap.history        || {};
+
+  // Packet counts
+  const rx = packets.recv ?? 0;
+  const tx = packets.sent ?? 0;
+  const el = id => document.getElementById(id);
+  if (el('ft-rx')) el('ft-rx').textContent = String(rx);
+  if (el('ft-tx')) el('ft-tx').textContent = String(tx);
+
+  // RSSI / SNR
+  const rssi = radio.last_rssi;
+  const snr  = radio.last_snr;
+  if (el('ft-rssi')) el('ft-rssi').textContent = rssi != null ? `${rssi}` : '–';
+  if (el('ft-snr'))  el('ft-snr').textContent  = snr  != null ? `${snr}` : '–';
+
+  // Uptime
+  if (el('ft-uptime')) el('ft-uptime').textContent = fmtUptime(core.uptime_secs);
+
+  // WS latency
+  if (el('ft-latency')) {
+    const lat = app.wsLatencyMs.length ? app.wsLatencyMs[app.wsLatencyMs.length - 1] : null;
+    el('ft-latency').textContent = lat != null ? `Lat: ${lat}ms` : 'Lat: –';
+  }
+
+  // Last update timestamp
+  if (el('ft-last-update') && app.wsLastMsgAt > 0) {
+    const ageSec = Math.floor((Date.now() - app.wsLastMsgAt) / 1000);
+    el('ft-last-update').textContent = `${ageSec}s ago`;
+  }
+
+  // Sparklines from history (flat arrays)
+  const rxHist   = (hist.rx   || []).slice(-60);
+  const rssiHist = (hist.rssi || []).slice(-60);
+  drawFooterSparkline('ft-traffic-chart', rxHist,   '#2ecc71', 'rgba(46,204,113,.18)');
+  drawFooterSparkline('ft-rssi-chart',    rssiHist,  '#58a6ff', 'rgba(88,166,255,.18)');
 }
 
 // ─── Tab Switching ───────────────────────────────────
@@ -1904,6 +1993,8 @@ function renderAll(snap) {
     updateChannelBadge();
     updateDmBadge();
   }
+
+  renderFooter(snap);
 }
 
 // ─── Wire UI ─────────────────────────────────────────

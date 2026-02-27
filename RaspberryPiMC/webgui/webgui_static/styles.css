@@ -711,3 +711,128 @@ body[data-role="repeater"]  .tab-pane.repeater-only.active  { display: block; }
   .ch-layout .pane-resizer { display: none; }
   .ch-layout .ch-sidebar { height: 200px; }
 }
+
+/* ─────────────── Persistent Footer ─────────────── */
+:root { --footer-h: 36px; }
+
+body { padding-bottom: var(--footer-h); }
+
+#app-footer {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 600;
+  height: var(--footer-h);
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 14px;
+  background: rgba(7, 12, 26, 0.96);
+  border-top: 1px solid var(--border2);
+  backdrop-filter: blur(10px);
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.ft-ws { display: flex; align-items: center; gap: 5px; }
+
+.ft-ws-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: var(--err);
+  box-shadow: 0 0 5px rgba(255,107,107,.6);
+  transition: background .4s, box-shadow .4s;
+}
+.ft-ws-dot.live {
+  background: var(--ok);
+  box-shadow: 0 0 6px rgba(46,204,113,.8);
+  animation: ft-ws-pulse 2.4s ease-in-out infinite;
+}
+@keyframes ft-ws-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(46,204,113,.5); }
+  50%       { box-shadow: 0 0 10px rgba(46,204,113,1); }
+}
+
+#ft-ws-label { color: var(--muted); white-space: nowrap; font-size: 11px; }
+
+.ft-sep  { width: 1px; height: 20px; background: var(--border2); flex-shrink: 0; }
+.ft-spacer { flex: 1 1 0; min-width: 0; }
+
+.ft-group { display: flex; align-items: center; gap: 8px; }
+
+.ft-kv { display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+.ft-k  { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.ft-v  { color: var(--text); font-weight: 600; min-width: 20px; }
+
+.ft-chart {
+  display: block; flex-shrink: 0;
+  width: 90px; height: 24px;
+  border-radius: 4px; opacity: .85;
+  background: transparent;
+}
+
+.ft-ts { color: var(--muted); font-size: 10px; white-space: nowrap; }
+
+/* ─────────────── Mobile (≤ 640 px) — enhanced ─────────────── */
+@media (max-width: 640px) {
+  /* Topbar: wrap to two rows */
+  .topbar {
+    height: auto; min-height: var(--tab-h);
+    flex-wrap: wrap;
+    padding: 6px 10px 0;
+    gap: 4px;
+    align-items: center;
+  }
+  .topbar-brand { flex: 1 1 auto; }
+  .topbar-right {
+    flex-shrink: 0; gap: 4px; margin-left: 0;
+    order: 2;
+  }
+  .topbar-right button { padding: 4px 7px; font-size: 11px; }
+  /* Tabs below brand + actions, full width, scrollable */
+  .tabs {
+    order: 3;
+    width: 100%;
+    overflow-x: auto; scrollbar-width: none;
+    padding: 0 0 5px;
+    gap: 1px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab-btn { padding: 0 10px; font-size: 12px; height: 36px; }
+  /* Main */
+  #main { padding: 8px; }
+  /* Stat cards: tighter 2-column grid */
+  .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 10px; }
+  .stat-card { padding: 8px 10px; }
+  .stat-card .sc-value { font-size: 15px; }
+  /* Map */
+  #map { height: 240px; }
+  /* Forms */
+  .row-form-3 { grid-template-columns: 1fr auto; }
+  .row-form-3 input:first-child + input { display: none; }
+  /* Config layout */
+  .cfg-layout { grid-template-columns: 1fr; }
+  .cfg-layout .pane-resizer { display: none; }
+  /* Charts */
+  .chart-grid { grid-template-columns: 1fr; }
+  .chart-wide { grid-column: span 1; }
+  /* Contacts */
+  .contacts-grid { grid-template-columns: 1fr; }
+  .contacts-toolbar { flex-wrap: wrap; }
+  /* Config param row */
+  .cfg-param-row { grid-template-columns: 1fr auto; }
+  .cfg-param-value { display: none; }
+}
+
+/* ─────────────── Mobile (≤ 400 px) ─────────────── */
+@media (max-width: 400px) {
+  .topbar-brand h1  { font-size: 14px; }
+  .topbar-brand .sub { display: none; }
+  .tab-btn { padding: 0 8px; font-size: 11px; }
+  .topbar-right #btn-advert,
+  .topbar-right #btn-sync-time { display: none; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 4px; }
+  .stat-card .sc-value { font-size: 13px; }
+}
+
+/* Footer items hidden on small screens */
+.ft-hide-sm { /* shown by default, hidden on ≤ 500px */ }
+@media (max-width: 500px) {
+  .ft-hide-sm { display: none !important; }
+  #app-footer { gap: 8px; padding: 0 10px; }
+}
