@@ -756,6 +756,7 @@ class CompanionClient:
         self._last_private_key_hex: str | None = None
         self._last_history_sample_at = 0.0
         self._fallback_rx_packets = 0
+        self._fallback_tx_packets = 0
         self.on_uptime_update = on_uptime_update
 
     def _append_history_sample_from_stats(self) -> None:
@@ -1071,9 +1072,14 @@ class CompanionClient:
                 "rx_air_secs": struct.unpack_from("<I", payload, 10)[0],
             }
         elif subtype == STATS_TYPE_PACKETS and len(payload) >= 30:
+            prev_packets = dict(self.state.stats.get("packets", {}))
+            recv = int(struct.unpack_from("<I", payload, 2)[0])
+            sent = int(struct.unpack_from("<I", payload, 6)[0])
+            recv = max(recv, int(prev_packets.get("recv", 0) or 0), int(self._fallback_rx_packets))
+            sent = max(sent, int(prev_packets.get("sent", 0) or 0), int(self._fallback_tx_packets))
             self.state.stats["packets"] = {
-                "recv": struct.unpack_from("<I", payload, 2)[0],
-                "sent": struct.unpack_from("<I", payload, 6)[0],
+                "recv": recv,
+                "sent": sent,
                 "flood_tx": struct.unpack_from("<I", payload, 10)[0],
                 "direct_tx": struct.unpack_from("<I", payload, 14)[0],
                 "flood_rx": struct.unpack_from("<I", payload, 18)[0],
@@ -1144,6 +1150,12 @@ class CompanionClient:
             if self._pending_ack_ids:
                 ack_id = self._pending_ack_ids.pop(0)
                 self.state.mark_message_status(ack_id, "sent")
+            self._fallback_tx_packets += 1
+            packets = dict(self.state.stats.get("packets", {}))
+            current_sent = int(packets.get("sent", 0) or 0)
+            if current_sent < self._fallback_tx_packets:
+                packets["sent"] = self._fallback_tx_packets
+                self.state.stats["packets"] = packets
         elif payload_type == RESP_CODE_NO_MORE_MSGS:
             pass  # No more queued messages — nothing to do
         elif payload_type == PUSH_CODE_ADVERT and len(payload) >= 33:
@@ -1942,6 +1954,9 @@ class App:
         if isinstance(self.client, RepeaterClient):
             self.client._prev_rx = 0
             self.client._prev_tx = 0
+        elif isinstance(self.client, CompanionClient):
+            self.client._fallback_rx_packets = 0
+            self.client._fallback_tx_packets = 0
 
         # Reset packet-log based statistics as well.
         self._clear_log_history()
