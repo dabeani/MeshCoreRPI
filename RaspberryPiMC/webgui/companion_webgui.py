@@ -2125,8 +2125,20 @@ class App:
             }
 
         if name == "identity_regenerate":
-            key_hex = _generated_device_key_hex()
-            applied, verified = self._apply_companion_private_key(key_hex)
+            last_err: str | None = None
+            applied = ""
+            verified = False
+            for _ in range(8):
+                key_hex = _generated_device_key_hex()
+                try:
+                    applied, verified = self._apply_companion_private_key(key_hex)
+                    last_err = None
+                    break
+                except ValueError as e:
+                    last_err = str(e)
+                    continue
+            if last_err is not None:
+                raise ValueError(f"failed to generate a valid identity key: {last_err}")
             pub = _pubkey_for_ui(applied, fallback=self.state.self_info.get("pubkey"))
             return {
                 "queued": True,
@@ -2140,8 +2152,20 @@ class App:
             }
 
         if name == "identity_renew_public_key":
-            key_hex = _generated_device_key_hex()
-            applied, verified = self._apply_companion_private_key(key_hex)
+            last_err: str | None = None
+            applied = ""
+            verified = False
+            for _ in range(8):
+                key_hex = _generated_device_key_hex()
+                try:
+                    applied, verified = self._apply_companion_private_key(key_hex)
+                    last_err = None
+                    break
+                except ValueError as e:
+                    last_err = str(e)
+                    continue
+            if last_err is not None:
+                raise ValueError(f"failed to generate a valid keypair: {last_err}")
             pub = _pubkey_for_ui(applied, fallback=self.state.self_info.get("pubkey"))
             return {
                 "queued": True,
@@ -2365,7 +2389,20 @@ class App:
             }
 
         if name == "identity_regenerate":
-            key_hex, pub, reply = self._apply_repeater_private_key(_generated_device_key_hex())
+            last_err: str | None = None
+            key_hex = ""
+            pub: str | None = None
+            reply = ""
+            for _ in range(8):
+                try:
+                    key_hex, pub, reply = self._apply_repeater_private_key(_generated_device_key_hex())
+                    last_err = None
+                    break
+                except ValueError as e:
+                    last_err = str(e)
+                    continue
+            if last_err is not None:
+                raise ValueError(f"failed to generate a valid identity key: {last_err}")
             return {
                 "reply": reply,
                 "message": "New identity key generated and saved. Reboot required to apply runtime identity.",
@@ -2373,7 +2410,20 @@ class App:
             }
 
         if name == "identity_renew_public_key":
-            key_hex, pub, reply = self._apply_repeater_private_key(_generated_device_key_hex())
+            last_err: str | None = None
+            key_hex = ""
+            pub: str | None = None
+            reply = ""
+            for _ in range(8):
+                try:
+                    key_hex, pub, reply = self._apply_repeater_private_key(_generated_device_key_hex())
+                    last_err = None
+                    break
+                except ValueError as e:
+                    last_err = str(e)
+                    continue
+            if last_err is not None:
+                raise ValueError(f"failed to generate a valid keypair: {last_err}")
             return {
                 "reply": reply,
                 "message": "New keypair generated and saved. Reboot required to apply runtime identity.",

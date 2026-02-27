@@ -58,7 +58,7 @@ bool IdentityStore::save(const char *name, const mesh::LocalIdentity& id) {
     bool success = id.writeTo(file);
     file.close();
     MESH_DEBUG_PRINTLN("IdentityStore::save() write - %s", success ? "OK" : "Err");
-    return true;
+    return success;
   }
   MESH_DEBUG_PRINTLN("IdentityStore::save() failed");
   return false;
@@ -77,17 +77,17 @@ bool IdentityStore::save(const char *name, const mesh::LocalIdentity& id, const 
   File file = _fs->open(filename, "w", true);
 #endif
   if (file) {
-    id.writeTo(file);
+    bool success = id.writeTo(file);
 
     uint8_t tmp[32];
     memset(tmp, 0, sizeof(tmp));
     int n = strlen(display_name);
     if (n > sizeof(tmp)-1) n = sizeof(tmp)-1;
     memcpy(tmp, display_name, n);
-    file.write(tmp, sizeof(tmp));
+    success = success && (file.write(tmp, sizeof(tmp)) == sizeof(tmp));
 
     file.close();
-    return true;
+    return success;
   }
   return false;
 }
