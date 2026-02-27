@@ -1417,7 +1417,15 @@ class RepeaterClient:
                     pass
 
             flags = prev.flags if prev else 0
-            out_path_len = prev.out_path_len if prev else 0
+            out_path_len = prev.out_path_len if prev else 255
+            # Optional newer CLI format may append path/hops as an extra token.
+            if len(parts) >= 8:
+                try:
+                    parsed_hops = int(parts[7])
+                    if 0 <= parsed_hops <= 255:
+                        out_path_len = parsed_hops
+                except ValueError:
+                    pass
 
             contact = Contact(
                 pubkey=key,
