@@ -2435,11 +2435,27 @@ function wireUi() {
   });
 }
 
+// Debounce rapid-fire WS state bursts (e.g. stat responses arriving in quick
+// succession) into a single renderAll() per animation frame.  At most one render
+// per ~16 ms regardless of how many WS messages arrive simultaneously.
+let _pendingSnap = null;
+let _renderPending = false;
+function _scheduleRenderAll(snap) {
+  _pendingSnap = snap;
+  if (!_renderPending) {
+    _renderPending = true;
+    requestAnimationFrame(() => {
+      _renderPending = false;
+      if (_pendingSnap) renderAll(_pendingSnap);
+    });
+  }
+}
+
 function _handleRealtimeEvent(msg) {
   if (!msg || typeof msg !== 'object') return;
   _recordWsLatencyFromEvent(msg);
   if (msg.type === 'state' && msg.payload) {
-    renderAll(msg.payload);
+    _scheduleRenderAll(msg.payload);
     return;
   }
   if (msg.type === 'rxlog_lines') {

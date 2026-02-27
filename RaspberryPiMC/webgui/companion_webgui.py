@@ -755,6 +755,7 @@ class CompanionClient:
         self._private_key_lock = threading.Lock()
         self._last_private_key_hex: str | None = None
         self._last_history_sample_at = 0.0
+        self._last_payload_pub_at = 0.0  # throttle bus.publish in _handle_payload
         self._fallback_rx_packets = 0
         self._fallback_tx_packets = 0
         self.on_uptime_update = on_uptime_update
@@ -1194,7 +1195,29 @@ class CompanionClient:
                 )
         elif payload_type == PUSH_CODE_MSG_WAITING:
             self.send_cmd(bytes([CMD_SYNC_NEXT_MESSAGE]))
-        self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
+
+        # Publish state to all WS clients.
+        # Time-critical events (new messages, adverts, real-time rx) publish
+        # immediately so the UI reacts without waiting for the next heartbeat.
+        # Routine responses (periodic stats/battery) are throttled: we only publish
+        # if >500 ms have passed since the last publish — the 2.5 s heartbeat loop
+        # will carry any remaining state updates. This prevents a burst of
+        # stat-response frames from triggering 4-10 rapid renderAll() calls in the
+        # browser, which was causing the dashboard to appear frozen.
+        _IMMEDIATE_TYPES = (
+            PUSH_CODE_NEW_ADVERT,
+            RESP_CODE_CHANNEL_MSG,
+            RESP_CODE_CHANNEL_MSG_V3,
+            RESP_CODE_CONTACT_MSG,
+            RESP_CODE_CONTACT_MSG_V3,
+            RESP_CODE_MSG_SENT,
+            PUSH_CODE_LOG_RX_DATA,
+            PUSH_CODE_MSG_WAITING,
+        )
+        _now = time.time()
+        if payload_type in _IMMEDIATE_TYPES or (_now - self._last_payload_pub_at) >= 0.5:
+            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(_now)})
+            self._last_payload_pub_at = _now
 
     def _recv(self) -> None:
         assert self.sock is not None
