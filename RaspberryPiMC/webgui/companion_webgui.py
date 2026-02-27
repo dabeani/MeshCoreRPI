@@ -1959,11 +1959,9 @@ class App:
         prev = self._last_device_uptime_secs
         self._last_device_uptime_secs = uptime
 
-        # First observed uptime in this web session: if device just booted,
-        # ensure packet-log/stat views start from zero.
+        # First observed uptime in this web session: keep current stats as-is.
+        # A fresh server session already starts from empty in-memory state.
         if prev is None:
-            if uptime <= 180:
-                self._reset_statistics(reason="device_reboot")
             return
 
         # Uptime rolled over (device reboot while webgui kept running).
