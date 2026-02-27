@@ -1173,6 +1173,11 @@ class CompanionClient:
             if current_recv < self._fallback_rx_packets:
                 packets["recv"] = self._fallback_rx_packets
                 self.state.stats["packets"] = packets
+            # Update radio stats in-place so RSSI/SNR stat cards refresh immediately
+            radio = dict(self.state.stats.get("radio", {}))
+            radio["last_rssi"] = int(rssi)
+            radio["last_snr"] = round(snr, 2)
+            self.state.stats["radio"] = radio
             self.state.add_event("pkt_rx", {
                 "count": 1, "total": int(self.state.stats.get("packets", {}).get("recv", self._fallback_rx_packets)),
                 "rssi": int(rssi), "snr": round(snr, 2),
@@ -1262,6 +1267,9 @@ class CompanionClient:
                     self.send_cmd(bytes([CMD_GET_CONTACTS]))
                 if poll_counter % 120 == 0:
                     self.send_cmd(bytes([CMD_DEVICE_QUERY, 0x03]))
+                # Publish state periodically so the dashboard stays fresh even during quiet radio
+                if poll_counter % 10 == 0:
+                    self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             time.sleep(0.25)
 
     def stop(self) -> None:
