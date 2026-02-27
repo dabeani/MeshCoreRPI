@@ -832,6 +832,7 @@ class CompanionClient:
             self.state.set_connected(True)
             self._bootstrap()
             self.state.add_event("connected", {"host": self.host, "port": self.port})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             self.bus.publish({"type": "connected", "ts": int(time.time())})
             return True
         except OSError:
@@ -1292,6 +1293,7 @@ class RepeaterClient:
             self.sock = sock
             self.state.set_connected(True)
             self.state.add_event("connected", {"host": self.host, "port": self.port})
+            self.bus.publish({"type": "state", "payload": self.state.snapshot(), "ts": int(time.time())})
             self.bus.publish({"type": "connected", "ts": int(time.time())})
             self._logging_started = False
             return True
