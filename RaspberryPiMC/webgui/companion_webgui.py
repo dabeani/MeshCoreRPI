@@ -1995,9 +1995,9 @@ class App:
         try:
             time.sleep(0.15)
             read_back = self.client.request_private_key(timeout=4.5)
-            if not _private_key_scalar_matches(read_back, key_hex):
-                raise ValueError("device rejected private key (format mismatch)")
-            verified = True
+            # Accept if scalar matches; if device returns a different format
+            # treat as "unverified" rather than retrying (the import was still sent).
+            verified = _private_key_scalar_matches(read_back, key_hex)
         except TimeoutError:
             # Some builds disable private-key export; verify via self-info pubkey refresh.
             verified_by_self_info = False
@@ -2009,8 +2009,6 @@ class App:
                     verified_by_self_info = True
                     break
                 time.sleep(0.08)
-            if expected_pub and not verified_by_self_info:
-                raise ValueError("device did not confirm applied public key")
             verified = verified_by_self_info
         pub = _pubkey_for_ui(key_hex, fallback=self.state.self_info.get("pubkey"))
         if pub:
@@ -2247,7 +2245,7 @@ class App:
             last_err: str | None = None
             applied = ""
             verified = False
-            for _ in range(8):
+            for _ in range(3):
                 key_hex = _generated_device_key_hex()
                 try:
                     applied, verified = self._apply_companion_private_key(key_hex)
@@ -2274,7 +2272,7 @@ class App:
             last_err: str | None = None
             applied = ""
             verified = False
-            for _ in range(8):
+            for _ in range(3):
                 key_hex = _generated_device_key_hex()
                 try:
                     applied, verified = self._apply_companion_private_key(key_hex)

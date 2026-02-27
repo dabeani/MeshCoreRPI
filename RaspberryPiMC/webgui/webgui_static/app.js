@@ -2165,6 +2165,16 @@ function wireUi() {
     resizeTimer = setTimeout(() => adjustLogBoxSize(), 40);
   });
 
+  // Helper: lock all identity buttons during an async operation
+  function _identityBusy(flag) {
+    ['btn-identity-load', 'btn-identity-renew-public', 'btn-identity-regenerate'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = flag;
+    });
+    const submit = document.querySelector('#identity-key-form button[type="submit"]');
+    if (submit) submit.disabled = flag;
+  }
+
   document.getElementById('identity-key-form')?.addEventListener('submit', async e => {
     e.preventDefault();
     const key = new FormData(e.target).get('private_key')?.trim().toLowerCase();
@@ -2172,7 +2182,10 @@ function wireUi() {
       setOutput('identity-key-output', 'Invalid key format. Expected 128 hex chars.');
       return;
     }
+    _identityBusy(true);
+    setOutput('identity-key-output', 'Applying key to device…');
     const d = await sendCommand('identity_set_key', { private_key: key });
+    _identityBusy(false);
     const payload = d?.payload || {};
     setOutput('identity-key-output', d?.ok
       ? (payload.message || payload.reply || 'Private key update queued.')
@@ -2181,7 +2194,10 @@ function wireUi() {
   });
 
   document.getElementById('btn-identity-load')?.addEventListener('click', async () => {
+    _identityBusy(true);
+    setOutput('identity-key-output', 'Reading key from device…');
     const d = await sendCommand('identity_load_key');
+    _identityBusy(false);
     const payload = d?.payload || {};
     if (!d?.ok) {
       setOutput('identity-key-output', `Error: ${d?.error || 'unknown'}`);
@@ -2198,7 +2214,10 @@ function wireUi() {
 
   document.getElementById('btn-identity-renew-public')?.addEventListener('click', async () => {
     if (!confirm('Generate and apply a new keypair to renew the public key?')) return;
+    _identityBusy(true);
+    setOutput('identity-key-output', 'Generating keypair and applying to device… (this may take a few seconds)');
     const d = await sendCommand('identity_renew_public_key');
+    _identityBusy(false);
     const payload = d?.payload || {};
     const pub = payload.new_pubkey ? ` New public key: ${payload.new_pubkey.slice(0, 16)}…` : '';
     setOutput('identity-key-output', d?.ok
@@ -2208,7 +2227,10 @@ function wireUi() {
 
   document.getElementById('btn-identity-regenerate')?.addEventListener('click', async () => {
     if (!confirm('Generate and apply a new identity key now?')) return;
+    _identityBusy(true);
+    setOutput('identity-key-output', 'Generating new identity key and applying to device… (this may take a few seconds)');
     const d = await sendCommand('identity_regenerate');
+    _identityBusy(false);
     const payload = d?.payload || {};
     const pub = payload.new_pubkey ? ` New public key: ${payload.new_pubkey.slice(0, 16)}…` : '';
     setOutput('identity-key-output', d?.ok
