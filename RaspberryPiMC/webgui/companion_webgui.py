@@ -1156,6 +1156,9 @@ class CompanionClient:
             if current_sent < self._fallback_tx_packets:
                 packets["sent"] = self._fallback_tx_packets
                 self.state.stats["packets"] = packets
+            self.state.add_event("pkt_tx", {
+                "count": 1, "total": int(self.state.stats.get("packets", {}).get("sent", self._fallback_tx_packets)),
+            })
         elif payload_type == RESP_CODE_NO_MORE_MSGS:
             pass  # No more queued messages — nothing to do
         elif payload_type == PUSH_CODE_ADVERT and len(payload) >= 33:
@@ -1170,6 +1173,10 @@ class CompanionClient:
             if current_recv < self._fallback_rx_packets:
                 packets["recv"] = self._fallback_rx_packets
                 self.state.stats["packets"] = packets
+            self.state.add_event("pkt_rx", {
+                "count": 1, "total": int(self.state.stats.get("packets", {}).get("recv", self._fallback_rx_packets)),
+                "rssi": int(rssi), "snr": round(snr, 2),
+            })
             if raw:
                 header = raw[0]
                 route_code = header & 0x03
