@@ -254,6 +254,7 @@
                   <button id="btn-sync-time-cfg" class="btn-ok">Sync Time</button>
                 </div>
               </div>
+              <p class="form-hint">MeshCore 1.14 note: advert behavior follows device path-hash settings; advanced routing/loop options are available in repeater mode.</p>
               <h3 class="form-title">Node Name</h3>
               <form id="cfg-name-form" class="row-form mb-8">
                 <input name="name" placeholder="New node name…" maxlength="31" />
@@ -330,6 +331,7 @@
                   <button id="save-config-btn" class="btn-ok">✓ Save to Device</button>
                 </div>
               </div>
+              <p class="form-hint">MeshCore 1.14 routing controls include <code>loop.detect</code> (off/minimal/moderate/strict) and <code>path.hash.mode</code> (0..2).</p>
               <div id="config-groups"></div>
               <div id="config-output" class="mono-box mt-8"></div>
             </div>
@@ -382,7 +384,7 @@
             <div class="panel-header">
               <h2>&#9881; CLI Terminal</h2>
               <div class="inline-actions">
-                <span style="color:var(--muted);font-size:11px">Try: radio-diag · ver · neighbors · stats-core · stats-radio</span>
+                <span style="color:var(--muted);font-size:11px">Try: radio-diag · ver · neighbors · get loop.detect · set loop.detect moderate · get path.hash.mode · advert.zerohop</span>
                 <button id="btn-reboot" class="btn-err">&#9889; Reboot Node</button>
               </div>
             </div>

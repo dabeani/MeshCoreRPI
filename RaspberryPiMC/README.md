@@ -365,6 +365,25 @@ Notes:
 - It is launched by `run_companion.sh` / `run_repeater.sh` and by role-specific `.deb` service wrappers when enabled.
 - Implementation is helper-based (`RaspberryPiMC/webgui/`) to keep MeshCore core firmware changes minimal.
 
+### MeshCore 1.14 Operator Notes
+
+The RaspberryPiMC WebGUI and backend are adapted for MeshCore `v1.14` controls:
+
+- Repeater config now exposes `loop.detect` (`off|minimal|moderate|strict`).
+- Repeater config now exposes `path.hash.mode` (`0..2`).
+- Repeater advert can be sent as flood (`advert`) or zero-hop (`advert.zerohop`) via CLI/raw command.
+- Companion advert command supports optional path hash size (`0..3`) in protocol framing; default behavior remains compatible with existing devices.
+
+Useful CLI checks on repeater:
+
+```text
+get loop.detect
+set loop.detect moderate
+get path.hash.mode
+set path.hash.mode 1
+advert.zerohop
+```
+
 ## PlatformIO Build Target
 
 You can select and compile this environment directly in PlatformIO:
