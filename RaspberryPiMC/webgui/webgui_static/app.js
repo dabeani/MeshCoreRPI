@@ -2283,9 +2283,24 @@ function wireUi() {
     setRegionStatus(`Creating ${name}…`);
     const d = await sendCommand('region_put', { name });
     if (d?.ok) {
-      await sendCommand(flood ? 'region_allowf' : 'region_denyf', { name });
+      const floodResult = await sendCommand(flood ? 'region_allowf' : 'region_denyf', { name });
+      if (!floodResult?.ok) {
+        setRegionStatus(floodResult?.error ? `Error: ${floodResult.error}` : `Error updating flood state for ${name}`);
+        return;
+      }
+
+      const saveResult = await sendCommand('region_save');
+      if (!saveResult?.ok) {
+        setRegionStatus(saveResult?.error ? `Error: ${saveResult.error}` : `Region ${name} added, but save failed`);
+        return;
+      }
+
+      const saveReply = saveResult?.payload?.reply;
+      setRegionStatus(saveReply || `Region ${name} created and saved`);
+    } else {
+      setRegionStatus(d?.error ? `Error: ${d.error}` : `Error creating region ${name}`);
+      return;
     }
-    setRegionStatus(d?.payload?.reply || (d?.error ? `Error: ${d.error}` : `Region ${name} created`));
     e.target.reset();
     document.getElementById('region-add-form').style.display = 'none';
     await refreshRegions();
@@ -2301,16 +2316,43 @@ function wireUi() {
     const action = btn.dataset.action;
     if (action === 'allowf') {
       const d = await sendCommand('region_allowf', { name: regionName });
-      setRegionStatus(d?.payload?.reply || `Flood allowed: ${regionName}`);
+      if (!d?.ok) {
+        setRegionStatus(d?.error ? `Error: ${d.error}` : `Error allowing flood: ${regionName}`);
+        return;
+      }
+      const save = await sendCommand('region_save');
+      if (!save?.ok) {
+        setRegionStatus(save?.error ? `Error: ${save.error}` : `Flood allowed for ${regionName}, but save failed`);
+        return;
+      }
+      setRegionStatus(save?.payload?.reply || `Flood allowed and saved: ${regionName}`);
       await refreshRegions();
     } else if (action === 'denyf') {
       const d = await sendCommand('region_denyf', { name: regionName });
-      setRegionStatus(d?.payload?.reply || `Flood denied: ${regionName}`);
+      if (!d?.ok) {
+        setRegionStatus(d?.error ? `Error: ${d.error}` : `Error denying flood: ${regionName}`);
+        return;
+      }
+      const save = await sendCommand('region_save');
+      if (!save?.ok) {
+        setRegionStatus(save?.error ? `Error: ${save.error}` : `Flood denied for ${regionName}, but save failed`);
+        return;
+      }
+      setRegionStatus(save?.payload?.reply || `Flood denied and saved: ${regionName}`);
       await refreshRegions();
     } else if (action === 'remove') {
       if (!confirm(`Remove region "${regionName}"?`)) return;
       const d = await sendCommand('region_remove', { name: regionName });
-      setRegionStatus(d?.payload?.reply || `Removed: ${regionName}`);
+      if (!d?.ok) {
+        setRegionStatus(d?.error ? `Error: ${d.error}` : `Error removing region: ${regionName}`);
+        return;
+      }
+      const save = await sendCommand('region_save');
+      if (!save?.ok) {
+        setRegionStatus(save?.error ? `Error: ${save.error}` : `Region ${regionName} removed, but save failed`);
+        return;
+      }
+      setRegionStatus(save?.payload?.reply || `Removed and saved: ${regionName}`);
       await refreshRegions();
     }
   });
