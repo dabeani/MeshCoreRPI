@@ -41,6 +41,8 @@ const app = {
   wsLatencyTs: [],
   wsLatencyMs: [],
   autoSyncTimePending: null,
+  lastStatsResetTs: 0,
+  lastDeviceUptime: null,
   // Accumulated history — grows client-side so heartbeats only need to send
   // the latest 2 points instead of the full 720-point series each time.
   history: {},
@@ -1869,8 +1871,40 @@ function _mergeHistory(snap) {
   }
 }
 
+function _resetFrontendStatistics(reason = 'reboot') {
+  app.history = {};
+  app.headerStats = null;
+  app.headerStatsLastFetch = 0;
+  app.headerStatsFetching = false;
+  app.lastDeviceUptime = null;
+
+  const totalEl = document.getElementById('pktstats-total');
+  if (totalEl) totalEl.textContent = `0 RX packets`;
+  renderPacketStats(null);
+}
+
 // ─── Full Render ─────────────────────────────────────
 function renderAll(snap) {
+  const resetTs = (snap?.events || []).reduce((max, ev) => {
+    if (ev?.type === 'stats_reset') {
+      return Math.max(max, Number(ev.ts) || 0);
+    }
+    return max;
+  }, 0);
+  if (resetTs > app.lastStatsResetTs) {
+    app.lastStatsResetTs = resetTs;
+    _resetFrontendStatistics('stats_reset');
+  }
+
+  const uptime = Number(snap?.stats?.core?.uptime_secs || 0);
+  if (Number.isFinite(uptime) && uptime > 0) {
+    const prevUptime = app.lastDeviceUptime;
+    if (prevUptime != null && uptime + 30 < prevUptime) {
+      _resetFrontendStatistics('uptime_rollover');
+    }
+    app.lastDeviceUptime = uptime;
+  }
+
   // Merge any new history points into the client-side accumulator before rendering
   _mergeHistory(snap);
   app.lastStateRenderAt = Date.now();
@@ -2372,6 +2406,9 @@ function wireUi() {
   document.getElementById('btn-reboot')?.addEventListener('click', async () => {
     if (!confirm('Reboot the repeater node?')) return;
     const d = await sendCommand('reboot');
+    if (d?.ok) {
+      _resetFrontendStatistics('manual_reboot');
+    }
     setOutput('raw-output', d?.payload?.reply || JSON.stringify(d?.payload));
   });
 
