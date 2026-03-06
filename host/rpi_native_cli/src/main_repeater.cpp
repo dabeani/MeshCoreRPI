@@ -308,6 +308,10 @@ class RepeaterCliTcpBridge {
   }
 
  private:
+  static constexpr size_t kMaxRecvBufferBytes = 16 * 1024;
+  static constexpr size_t kMaxSendBufferBytes = 256 * 1024;
+  static constexpr size_t kMaxCommandBytes = 4096;
+
   int port;
   int listen_fd = -1;
   int client_fd = -1;
@@ -345,6 +349,9 @@ class RepeaterCliTcpBridge {
     }
     if (n < 0) return;
     recv_buffer.append(tmp, static_cast<size_t>(n));
+    if (recv_buffer.size() > kMaxRecvBufferBytes) {
+      closeClient();
+    }
   }
 
   template <typename Handler>
@@ -358,6 +365,10 @@ class RepeaterCliTcpBridge {
         line.pop_back();
       }
       if (line.empty()) continue;
+      if (line.size() > kMaxCommandBytes) {
+        closeClient();
+        return;
+      }
 
       std::string reply;
       bool ok = true;
@@ -373,6 +384,10 @@ class RepeaterCliTcpBridge {
            << ",\"command\":\"" << jsonEscape(line) << "\""
            << ",\"reply\":\"" << jsonEscape(reply) << "\"}\n";
       send_buffer += json.str();
+      if (send_buffer.size() > kMaxSendBufferBytes) {
+        closeClient();
+        return;
+      }
     }
   }
 

@@ -504,6 +504,16 @@ mesh::Packet *MyMesh::createSelfAdvert() {
 }
 
 File MyMesh::openAppend(const char *fname) {
+  constexpr size_t kMaxPacketLogBytes = 4 * 1024 * 1024;
+  File existing = _fs->open(fname, "r");
+  if (existing) {
+    const size_t size = existing.size();
+    existing.close();
+    if (size > kMaxPacketLogBytes) {
+      _fs->remove(fname);
+    }
+  }
+
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   return _fs->open(fname, FILE_O_WRITE);
 #elif defined(RP2040_PLATFORM)

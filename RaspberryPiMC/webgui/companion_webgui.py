@@ -254,6 +254,32 @@ def _packet_log_candidate_paths(role: str | None = None) -> list[Path]:
 
 
 _append_packet_log_lock = threading.Lock()
+_PACKET_LOG_MAX_BYTES = 4 * 1024 * 1024
+_PACKET_LOG_KEEP_BYTES = 512 * 1024
+
+
+def _trim_packet_log_file(path: Path, max_bytes: int = _PACKET_LOG_MAX_BYTES, keep_bytes: int = _PACKET_LOG_KEEP_BYTES) -> None:
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return
+    if size <= max_bytes:
+        return
+
+    start = max(0, size - keep_bytes)
+    try:
+        with path.open("rb") as src:
+            if start > 0:
+                src.seek(start)
+            data = src.read()
+        if start > 0:
+            nl = data.find(b"\n")
+            if nl >= 0:
+                data = data[nl + 1 :]
+        with path.open("wb") as dst:
+            dst.write(data)
+    except OSError:
+        return
 
 
 def _append_packet_log_line(line: str) -> None:
@@ -264,6 +290,7 @@ def _append_packet_log_line(line: str) -> None:
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
             with _append_packet_log_lock:
+                _trim_packet_log_file(p)
                 with p.open("a", encoding="utf-8") as fh:
                     fh.write(line + "\n")
             return
