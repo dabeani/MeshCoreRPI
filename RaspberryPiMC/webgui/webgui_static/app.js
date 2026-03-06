@@ -1661,6 +1661,8 @@ const CONFIG_META = {
   repeat:  { label: 'Repeat Mode',      unit: '',     group: 'Routing',  desc: '0 = monitor only · 1 = forward / repeat packets' },
   airtime: { label: 'Airtime Limit',    unit: '%',    group: 'Routing',  desc: 'Max airtime fraction reserved for forwarding (0–100)' },
   maxhops: { label: 'Max Hops',         unit: '',     group: 'Routing',  desc: 'Maximum hop count before a packet is discarded' },
+  'path.hash.mode': { label: 'Path Hash Mode', unit: '', group: 'Routing', desc: 'Flood-path hash size mode (0..2)' },
+  'loop.detect': { label: 'Loop Detect', unit: '', group: 'Routing', desc: 'Loop handling mode: off, minimal, moderate, strict' },
 };
 
 const RADIO_SPLIT_KEYS = ['radio_bw', 'radio_sf', 'radio_cr'];

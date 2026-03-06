@@ -99,6 +99,8 @@ REPEATER_CONFIG_KEYS: dict[str, list[str]] = {
         "int.thresh",
         "agc.reset.interval",
         "multi.acks",
+        "path.hash.mode",
+        "loop.detect",
         "flood.advert.interval",
         "advert.interval",
         "flood.max",
@@ -2183,8 +2185,17 @@ class App:
             return {"queued": True}
 
         if name == "advert":
-            self.client.send_cmd(bytes([CMD_SEND_SELF_ADVERT]))
-            return {"queued": True}
+            path_hash_size_raw = args.get("path_hash_size", None)
+            if path_hash_size_raw is None:
+                self.client.send_cmd(bytes([CMD_SEND_SELF_ADVERT]))
+                return {"queued": True}
+
+            path_hash_size = int(path_hash_size_raw)
+            if path_hash_size < 0 or path_hash_size > 3:
+                raise ValueError("path_hash_size must be 0..3")
+
+            self.client.send_cmd(bytes([CMD_SEND_SELF_ADVERT, path_hash_size & 0xFF]))
+            return {"queued": True, "path_hash_size": path_hash_size}
 
         if name == "sync_time":
             return self._sync_time_from_rpi(source="manual")
@@ -2480,9 +2491,11 @@ class App:
             return {"queued": True}
 
         if name == "advert":
-            reply = self.client.send_cli_command("advert")
-            self.state.add_event("command", {"name": "advert", "reply": reply})
-            return {"reply": reply}
+            mode = str(args.get("mode", "")).strip().lower()
+            cmd = "advert.zerohop" if mode in ("zerohop", "zero-hop", "zero_hop", "0hop", "0-hop") else "advert"
+            reply = self.client.send_cli_command(cmd)
+            self.state.add_event("command", {"name": cmd, "reply": reply})
+            return {"reply": reply, "mode": mode or "flood"}
 
         if name == "sync_time":
             return self._sync_time_from_rpi(source="manual")
