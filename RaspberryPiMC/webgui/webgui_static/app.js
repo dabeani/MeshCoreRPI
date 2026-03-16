@@ -1001,30 +1001,76 @@ function drawBarChart(canvas, data, colors) {
 }
 
 function renderCharts(snap) {
-  const h = app.history && app.history.ts?.length ? app.history : (snap?.history || {});
-  const ts = h.ts || [];
-  updateChartsLiveAge(ts);
+  // No cached historical data - show only current values
+  const stats = snap?.stats || {};
+  const core = stats.core || {};
+  const radio = stats.radio || {};
+  const packets = stats.packets || {};
 
-  // 1. Packet traffic: show per-interval deltas so chart stays "live"
-  drawChart(document.getElementById('chart-traffic'), ts, [
-    { label: 'RX/interval',   data: toDelta(h.rx),   color: '#58a6ff', fill: true },
-    { label: 'TX/interval',   data: toDelta(h.tx),   color: '#2ecc71' },
-    { label: 'Drop/interval', data: toDelta(h.drop), color: '#ff6b6b', dash: [4, 3] },
+  // Clear all chart canvases first
+  ['chart-traffic', 'chart-radio', 'chart-noise', 'chart-routing', 'chart-payload'].forEach(id => {
+    const canvas = document.getElementById(id);
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#080e1e';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#7a8fc7';
+      ctx.font = '12px system-ui';
+      ctx.fillText('No data', 16, 24);
+    }
+  });
+
+  // Show current values as simple text indicators instead of charts
+  updateChartWithCurrentValue('chart-traffic', 'Packet Traffic', [
+    `RX: ${packets.recv || 0}`,
+    `TX: ${packets.sent || 0}`,
+    `Drop: ${packets.drop || packets.recv_errors || 0}`
   ]);
 
-  // 2. Signal quality: RSSI & Noise Floor (both dBm — same axis is meaningful)
-  drawChart(document.getElementById('chart-radio'), ts, [
-    { label: 'RSSI (dBm)',        data: h.rssi,        color: '#f4c430' },
-    { label: 'Noise Floor (dBm)', data: h.noise_floor, color: '#a78bfa', dash: [4, 4] },
+  updateChartWithCurrentValue('chart-radio', 'Radio Quality', [
+    `RSSI: ${radio.last_rssi != null ? radio.last_rssi + ' dBm' : '–'}`,
+    `SNR: ${radio.last_snr != null ? radio.last_snr + ' dB' : '–'}`
   ]);
 
-  // 3. SNR & Queue
-  drawChart(document.getElementById('chart-noise'), ts, [
-    { label: 'SNR (dB)', data: h.snr,   color: '#38bdf8', fill: true },
-    { label: 'Queue',    data: h.queue, color: '#ff6b6b' },
+  updateChartWithCurrentValue('chart-noise', 'System Status', [
+    `Noise: ${radio.noise_floor != null ? radio.noise_floor + ' dBm' : '–'}`,
+    `Queue: ${core.queue_len || 0}`,
+    `Uptime: ${fmtUptime(core.uptime_secs)}`
   ]);
 
-  // Header charts are now rendered as live-updating bars in renderPacketStats()
+  // Header charts are rendered separately by renderPacketStats()
+}
+
+function updateChartWithCurrentValue(canvasId, title, values) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width > 4 ? rect.width : 300;
+  const H = rect.height > 4 ? rect.height : 160;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = '#080e1e';
+  ctx.fillRect(0, 0, W, H);
+
+  // Title
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '14px system-ui';
+  ctx.fillText(title, 16, 24);
+
+  // Values
+  ctx.fillStyle = '#7a8fc7';
+  ctx.font = '12px system-ui';
+  values.forEach((value, i) => {
+    ctx.fillText(value, 16, 48 + i * 20);
+  });
 }
 
 // ─── Contacts Table ──────────────────────────────────

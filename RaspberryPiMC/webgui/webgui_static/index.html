@@ -109,21 +109,13 @@
             <div class="panel-header"><h2>Noise Floor &amp; Queue</h2></div>
             <canvas id="chart-noise" height="140"></canvas>
           </div>
-        </div>
-        <div class="panel mt-20">
-          <div class="panel-header">
-            <h2>Packet Header Breakdown</h2>
-            <span id="pktstats-total" class="muted-txt"></span>
+          <div class="panel chart-card">
+            <div class="panel-header"><h2>Routing Types <span id="pktstats-total" class="muted-txt"></span></h2></div>
+            <canvas id="chart-routing" height="160"></canvas>
           </div>
-          <div class="chart-grid">
-            <div class="panel chart-card">
-              <div class="panel-header"><h3>Routing Type (Bits 0-1)</h3></div>
-              <canvas id="chart-routing" height="160"></canvas>
-            </div>
-            <div class="panel chart-card">
-              <div class="panel-header"><h3>Payload Type (Bits 2-5)</h3></div>
-              <canvas id="chart-payload" height="160"></canvas>
-            </div>
+          <div class="panel chart-card">
+            <div class="panel-header"><h2>Payload Types</h2></div>
+            <canvas id="chart-payload" height="160"></canvas>
           </div>
         </div>
       </section><!-- /charts -->
