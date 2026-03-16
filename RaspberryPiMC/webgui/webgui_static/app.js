@@ -2117,6 +2117,7 @@ function renderAll(snap) {
   const radioBwInput = document.querySelector('#cfg-radio-form input[name="bw_khz"]');
   const radioSfInput = document.querySelector('#cfg-radio-form-2 input[name="sf"]');
   const radioCrInput = document.querySelector('#cfg-radio-form-2 input[name="cr"]');
+  const si = snap.self_info || {};
   if (radioFreqInput && document.activeElement !== radioFreqInput) {
     const freqKhz = Number(si.radio_freq_khz || 0);
     if (freqKhz > 0) radioFreqInput.value = (freqKhz / 1000).toFixed(3);
