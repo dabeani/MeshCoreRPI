@@ -1738,7 +1738,10 @@ class WebRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path == "/api/state":
-            self._send_json(self.server.state.snapshot())
+            # For initial REST state requests we omit historical series data.
+            # This ensures clients receive only current/live values since
+            # the server process started and avoid delivering cached history.
+            self._send_json(self.server.state.snapshot(history_tail=0))
             return
 
         if parsed.path == "/ws":

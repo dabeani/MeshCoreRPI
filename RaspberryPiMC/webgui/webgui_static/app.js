@@ -1942,7 +1942,12 @@ function renderRegionList(regions) {
 // If snap.history is empty or absent the accumulated history is unchanged.
 function _mergeHistory(snap) {
   const h = snap?.history;
-  if (!h || !h.ts || !h.ts.length) return;
+  // If the incoming snapshot has no history payload, reset the accumulated
+  // client-side history to avoid retaining older points across reconnects.
+  if (!h || !h.ts || !h.ts.length) {
+    app.history = {};
+    return;
+  }
   if (!app.history.ts || !app.history.ts.length) {
     // First delivery or reset — replace wholesale
     app.history = {};
@@ -2799,6 +2804,9 @@ function connectWebSocket() {
 
   ws.onopen = () => {
     app.wsConnected = true;
+    // Reset accumulated frontend statistics on a fresh WS connection
+    // so the client shows only live values since this web session.
+    try { _resetFrontendStatistics('ws_connect'); } catch (_) {}
     clearTimeout(app.wsRetryTimer);
     updateWsStatusPanel();
   };
