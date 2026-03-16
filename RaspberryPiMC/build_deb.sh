@@ -223,13 +223,13 @@ if [[ "${RPI_USE_DIO2_RF:-0}" != "1" ]]; then
 fi
 
 if [[ "${ROLE}" == "companion" && ( -n "${BLE_PID:-}" || -n "${WEB_PID:-}" ) ]]; then
-  "$BIN" "${EXTRA_RADIO_ARGS[@]}" "$@"
+  "\$BIN" "${EXTRA_RADIO_ARGS[@]}" "$@"
 elif [[ "${ROLE}" == "repeater" && -n "${WEB_PID:-}" ]]; then
-  "$BIN" "${EXTRA_RADIO_ARGS[@]}" "$@"
+  "\$BIN" "${EXTRA_RADIO_ARGS[@]}" "$@"
 elif [[ "${ROLE}" == "companion" ]]; then
-  exec "$BIN" "${EXTRA_RADIO_ARGS[@]}" "$@"
+  exec "\$BIN" "${EXTRA_RADIO_ARGS[@]}" "$@"
 else
-  exec "$BIN" "${EXTRA_RADIO_ARGS[@]}" "$@"
+  exec "\$BIN" "${EXTRA_RADIO_ARGS[@]}" "$@"
 fi
 EOF
 chmod 0755 "$PKG_ROOT/usr/bin/raspberrypimc-${ROLE}"
