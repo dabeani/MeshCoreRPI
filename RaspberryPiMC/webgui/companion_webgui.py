@@ -2622,6 +2622,13 @@ class App:
 
         if name == "clear_stats":
             reply = self.client.send_cli_command("clear stats")
+            # Also clear packet log files so header stats start from zero
+            for log_path in _packet_log_candidate_paths(role=self.role):
+                try:
+                    if log_path.exists():
+                        log_path.write_text("")  # Truncate the log file
+                except OSError:
+                    pass  # Ignore errors when clearing logs
             self.client.refresh(full=False)
             return {"reply": reply}
 
