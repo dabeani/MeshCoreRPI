@@ -545,12 +545,61 @@ async function refreshPacketStats() {
   try {
     const d = await sendCommand('header_stats');
     if (d?.ok && d.payload) {
+      // Calculate deltas for live charting
+      const prevStats = app.headerStats;
       app.headerStats = d.payload;
       app.headerStatsLastFetch = Date.now();
+
+      // Add to history for live charts
+      if (!app.history.header_ts) app.history.header_ts = [];
+      if (!app.history.header_routing) app.history.header_routing = [];
+      if (!app.history.header_payload) app.history.header_payload = [];
+
+      const now = Date.now() / 1000; // seconds
+      app.history.header_ts.push(now);
+
+      // Calculate deltas for routing types
+      const routingDelta = {
+        transport_flood: (d.payload.routing?.transport_flood || 0) - (prevStats?.routing?.transport_flood || 0),
+        flood: (d.payload.routing?.flood || 0) - (prevStats?.routing?.flood || 0),
+        direct: (d.payload.routing?.direct || 0) - (prevStats?.routing?.direct || 0),
+        transport_direct: (d.payload.routing?.transport_direct || 0) - (prevStats?.routing?.transport_direct || 0),
+      };
+      app.history.header_routing.push(routingDelta);
+
+      // Calculate deltas for payload types
+      const payloadDelta = {
+        req: (d.payload.payload?.req || 0) - (prevStats?.payload?.req || 0),
+        resp: (d.payload.payload?.resp || 0) - (prevStats?.payload?.resp || 0),
+        txt: (d.payload.payload?.txt || 0) - (prevStats?.payload?.txt || 0),
+        ack: (d.payload.payload?.ack || 0) - (prevStats?.payload?.ack || 0),
+        advert: (d.payload.payload?.advert || 0) - (prevStats?.payload?.advert || 0),
+        grp_txt: (d.payload.payload?.grp_txt || 0) - (prevStats?.payload?.grp_txt || 0),
+        grp_data: (d.payload.payload?.grp_data || 0) - (prevStats?.payload?.grp_data || 0),
+        anon_req: (d.payload.payload?.anon_req || 0) - (prevStats?.payload?.anon_req || 0),
+        path: (d.payload.payload?.path || 0) - (prevStats?.payload?.path || 0),
+        trace: (d.payload.payload?.trace || 0) - (prevStats?.payload?.trace || 0),
+        multipart: (d.payload.payload?.multipart || 0) - (prevStats?.payload?.multipart || 0),
+        control: (d.payload.payload?.control || 0) - (prevStats?.payload?.control || 0),
+        raw_custom: (d.payload.payload?.raw_custom || 0) - (prevStats?.payload?.raw_custom || 0),
+      };
+      app.history.header_payload.push(payloadDelta);
+
+      // Keep history limited
+      const maxPoints = 720;
+      if (app.history.header_ts.length > maxPoints) {
+        app.history.header_ts = app.history.header_ts.slice(-maxPoints);
+        app.history.header_routing = app.history.header_routing.slice(-maxPoints);
+        app.history.header_payload = app.history.header_payload.slice(-maxPoints);
+      }
     }
   } finally {
     app.headerStatsFetching = false;
     renderPacketStats(app.headerStats);
+    // Update live charts if on charts tab
+    if (app.activeTab === 'charts') {
+      renderCharts(null);
+    }
   }
 }
 
@@ -1018,6 +1067,31 @@ function renderCharts(snap) {
     { label: 'SNR (dB)', data: h.snr,   color: '#38bdf8', fill: true },
     { label: 'Queue',    data: h.queue, color: '#ff6b6b' },
   ]);
+
+  // 4. Header routing types (live)
+  if (h.header_ts?.length && h.header_routing?.length) {
+    const routingData = [
+      { label: 'Trans Flood', data: h.header_routing.map(r => r.transport_flood), color: '#58a6ff', fill: true },
+      { label: 'Flood',       data: h.header_routing.map(r => r.flood),           color: '#2ecc71' },
+      { label: 'Direct',      data: h.header_routing.map(r => r.direct),          color: '#f4c430' },
+      { label: 'Trans Direct',data: h.header_routing.map(r => r.transport_direct),color: '#ff6b6b' },
+    ];
+    drawChart(document.getElementById('chart-routing'), h.header_ts, routingData);
+  }
+
+  // 5. Header payload types (live)
+  if (h.header_ts?.length && h.header_payload?.length) {
+    const payloadData = [
+      { label: 'REQ',    data: h.header_payload.map(p => p.req),       color: '#58a6ff', fill: true },
+      { label: 'RESP',   data: h.header_payload.map(p => p.resp),      color: '#2ecc71' },
+      { label: 'TXT',    data: h.header_payload.map(p => p.txt),       color: '#f4c430' },
+      { label: 'ACK',    data: h.header_payload.map(p => p.ack),       color: '#ff6b6b' },
+      { label: 'ADV',    data: h.header_payload.map(p => p.advert),    color: '#a78bfa' },
+      { label: 'GRP_T',  data: h.header_payload.map(p => p.grp_txt),   color: '#38bdf8' },
+      { label: 'GRP_D',  data: h.header_payload.map(p => p.grp_data),  color: '#7a8fc7' },
+    ];
+    drawChart(document.getElementById('chart-payload'), h.header_ts, payloadData);
+  }
 }
 
 // ─── Contacts Table ──────────────────────────────────
@@ -2135,10 +2209,17 @@ function wireUi() {
   // Quick actions
   document.getElementById('btn-clear-stats')?.addEventListener('click', () => {
     sendCommand('clear_stats');
-    // Reset cached stats so charts start from zero
+    // Reset all cached statistics and history
+    app.history = {};
     app.headerStats = null;
     app.headerStatsLastFetch = 0;
+    app.headerStatsFetching = false;
+    app.lastDeviceUptime = null;
+    const totalEl = document.getElementById('pktstats-total');
+    if (totalEl) totalEl.textContent = `0 RX packets`;
     renderPacketStats(null);
+    // Re-render charts with empty data
+    renderCharts(null);
   });
   document.getElementById('btn-mode-fwd')?.addEventListener('click', () =>
     sendCommand('set_mode', { mode: 'forward' }).then(d =>
@@ -2767,6 +2848,13 @@ function connectWebSocket() {
   setInterval(() => {
     sendCommand('get_hardware_stats').then(d => { if (d?.ok && d.payload) updateHwStats(d.payload); });
   }, 30000);
+
+  // Periodic header stats refresh (every 5s for live updates)
+  setInterval(() => {
+    if (app.activeTab === 'charts' && !app.headerStatsFetching) {
+      refreshPacketStats();
+    }
+  }, 5000);
 
   setInterval(updateWsStatusPanel, 1000);
 
