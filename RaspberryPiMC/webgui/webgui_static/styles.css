@@ -194,7 +194,7 @@ button:hover { border-color: var(--accent); background: #1f3268; }
 .chart-card canvas { width: 100% !important; display: block; height: 180px; }
 .chart-wide { grid-column: span 2; }
 
-/* ─────────────── Statistics Tab ─────────────── */
+/* ─────────────── Packet Statistics (Charts Tab) ─────────────── */
 .pktstats-list { display: flex; flex-direction: column; gap: 10px; }
 .pktstats-group h3 { color: var(--muted); font-size: 12px; font-weight: 600; margin: 0 0 10px; }
 .pktstats-row { display: flex; flex-direction: column; gap: 6px; }

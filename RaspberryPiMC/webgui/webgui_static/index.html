@@ -26,7 +26,6 @@
       <nav class="tabs" id="tab-nav" role="tablist">
         <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
         <button class="tab-btn" data-tab="charts">Charts</button>
-        <button class="tab-btn" data-tab="stats">Statistics</button>
         <button class="tab-btn" data-tab="contacts">Contacts</button>
         <button class="tab-btn" data-tab="config">Config</button>
         <button class="tab-btn" data-tab="logs">Logs</button>
@@ -36,7 +35,6 @@
       <div class="topbar-right">
         <span id="conn-badge" class="badge err" title="Connection status">–</span>
         <button id="btn-advert">Advert</button>
-        <button id="btn-sync-time">Sync Time</button>
         <button id="btn-clear-stats">Clear Stats</button>
         <button id="btn-refresh">Refresh</button>
       </div>
@@ -86,21 +84,6 @@
                 <div class="stat-mini"><span class="lbl">Disk</span><span id="hw-disk" class="val">–</span></div>
                 <div class="stat-mini"><span class="lbl">Temp</span><span id="hw-temp" class="val">–</span></div>
               </div>
-              <div class="ws-status-wrap">
-                <div class="ws-status-top">
-                  <span class="lbl">WebSocket</span>
-                  <span id="ws-state" class="badge err">offline</span>
-                </div>
-                <div class="ws-status-meta">
-                  <span id="ws-rx">RX events: 0</span>
-                  <span id="ws-tx">TX commands: 0</span>
-                </div>
-                <div class="ws-status-meta">
-                  <span id="ws-latency-now">Latency: –</span>
-                  <span id="ws-last-msg">Last message: –</span>
-                </div>
-                <canvas id="ws-latency-chart" class="sys-chart" title="WebSocket event latency"></canvas>
-              </div>
               <canvas id="sys-chart-cpu" class="sys-chart" title="CPU usage over time"></canvas>
               <canvas id="sys-chart-mem" class="sys-chart" title="RAM usage over time"></canvas>
             </div>
@@ -127,12 +110,7 @@
             <canvas id="chart-noise" height="140"></canvas>
           </div>
         </div>
-      </section><!-- /charts -->
-
-
-      <!-- ════════ STATISTICS TAB ════════ -->
-      <section id="tab-stats" class="tab-pane" role="tabpanel">
-        <div class="panel">
+        <div class="panel mt-20">
           <div class="panel-header">
             <h2>Packet Header Breakdown</h2>
             <span id="pktstats-total" class="muted-txt"></span>
@@ -146,7 +124,7 @@
             <div id="pktstats-payload-bars" class="pktstats-list"></div>
           </div>
         </div>
-      </section><!-- /stats -->
+      </section><!-- /charts -->
 
 
       <!-- ════════ CONTACTS TAB ════════ -->
@@ -561,6 +539,7 @@
       <div class="ft-sep ft-hide-sm"></div>
       <span class="ft-kv ft-hide-sm"><span class="ft-k">Up</span><span id="ft-uptime" class="ft-v">–</span></span>
       <div class="ft-spacer"></div>
+      <canvas id="ft-ws-latency-chart" class="ft-chart ft-hide-sm" title="WebSocket latency"></canvas>
       <span id="ft-latency" class="ft-ts ft-hide-sm">Lat: –</span>
       <span id="ft-last-update" class="ft-ts">–</span>
     </footer>

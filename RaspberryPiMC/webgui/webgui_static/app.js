@@ -164,39 +164,14 @@ function updateWsStatusPanel() {
   const txEl = document.getElementById('ws-tx');
   const latEl = document.getElementById('ws-latency-now');
   const lastEl = document.getElementById('ws-last-msg');
-  if (!stateEl || !rxEl || !txEl || !latEl || !lastEl) return;
+  // Removed elements - no longer update them
 
   const now = Date.now();
   const wsFresh = app.wsLastMsgAt > 0 ? (now - app.wsLastMsgAt) < 25000 : app.wsConnected;
   const backendConnected = Boolean(app.snap?.connected);
   const wsHealthy = app.wsConnected && wsFresh && backendConnected;
 
-  stateEl.textContent = wsHealthy ? 'connected' : 'offline';
-  stateEl.className = `badge ${wsHealthy ? 'ok' : 'err'}`;
-
-  rxEl.textContent = `RX events: ${app.wsRxCount}`;
-  txEl.textContent = `TX commands: ${app.wsTxCount}`;
-
-  const latestLatency = app.wsLatencyMs.length ? app.wsLatencyMs[app.wsLatencyMs.length - 1] : null;
-  latEl.textContent = latestLatency == null ? 'Latency: –' : `Latency: ${latestLatency} ms`;
-
-  if (app.wsLastMsgAt > 0) {
-    const ageMs = Math.max(0, now - app.wsLastMsgAt);
-    const ageSec = Math.floor(ageMs / 1000);
-    lastEl.textContent = `Last message: ${ageSec}s ago`;
-  } else {
-    lastEl.textContent = 'Last message: –';
-  }
-
-  const connBadge = document.getElementById('conn-badge');
-  if (connBadge && !wsFresh) {
-    connBadge.textContent = 'offline';
-    connBadge.className = 'badge err';
-  }
-
-  drawChart(document.getElementById('ws-latency-chart'), app.wsLatencyTs, [
-    { label: 'WS Latency (ms)', data: app.wsLatencyMs, color: '#58a6ff', fill: true },
-  ]);
+  // Update footer instead
   renderFooter(app.snap);
 }
 
@@ -286,6 +261,7 @@ function renderFooter(snap) {
   const rssiHist = (hist.rssi || []).slice(-60);
   drawFooterSparkline('ft-traffic-chart', rxHist,   '#2ecc71', 'rgba(46,204,113,.18)');
   drawFooterSparkline('ft-rssi-chart',    rssiHist,  '#58a6ff', 'rgba(88,166,255,.18)');
+  drawFooterSparkline('ft-ws-latency-chart', app.wsLatencyMs.slice(-60), '#ff6b6b', 'rgba(255,107,107,.18)');
 }
 
 // ─── Tab Switching ───────────────────────────────────
@@ -299,8 +275,6 @@ function switchTab(tabName) {
   }
   if (tabName === 'charts' && app.snap) {
     setTimeout(() => renderCharts(app.snap), 150);
-  }
-  if (tabName === 'stats' && app.snap) {
     refreshPacketStats();
   }
   if (tabName === 'contacts' && app.snap) {
@@ -598,7 +572,14 @@ function renderPacketStats(stats) {
     txt: 0,
     ack: 0,
     advert: 0,
+    grp_txt: 0,
+    grp_data: 0,
+    anon_req: 0,
     path: 0,
+    trace: 0,
+    multipart: 0,
+    control: 0,
+    raw_custom: 0,
   };
   totalEl.textContent = `${Number(stats?.total_rx || 0)} RX packets`;
 
@@ -627,7 +608,14 @@ function renderPacketStats(stats) {
       txt: '0x02 TXT',
       ack: '0x03 ACK',
       advert: '0x04 ADVERT',
+      grp_txt: '0x05 GRP_TXT',
+      grp_data: '0x06 GRP_DATA',
+      anon_req: '0x07 ANON_REQ',
       path: '0x08 PATH',
+      trace: '0x09 TRACE',
+      multipart: '0x0A MULTIPART',
+      control: '0x0B CONTROL',
+      raw_custom: '0x0F RAW_CUSTOM',
     },
     payloadCounts,
     {
@@ -636,7 +624,14 @@ function renderPacketStats(stats) {
       txt: 'c3',
       ack: 'c4',
       advert: 'c5',
-      path: 'c6',
+      grp_txt: 'c6',
+      grp_data: 'c7',
+      anon_req: 'c8',
+      path: 'c9',
+      trace: 'c10',
+      multipart: 'c11',
+      control: 'c12',
+      raw_custom: 'c13',
     },
   );
 }
@@ -655,8 +650,6 @@ function renderStatCards(snap) {
 
   const cards = role === 'repeater'
     ? [
-      { label: 'Status',     value: snap.connected ? 'Connected' : 'Offline',
-        cls: snap.connected ? 'good' : 'error' },
       { label: 'Node Name',  value: si.name || '–' },
       { label: 'Mode',       value: core.queue_len != null ? 'Forwarding' : '–',
         sub: di.model || '' },
@@ -674,8 +667,6 @@ function renderStatCards(snap) {
       { label: 'Frequency',  value: freqMhz },
     ]
     : [
-      { label: 'Status',     value: snap.connected ? 'Connected' : 'Offline',
-        cls: snap.connected ? 'good' : 'error' },
       { label: 'Node Name',  value: si.name || '–' },
       { label: 'Model',      value: di.model || '–' },
       { label: 'Firmware',   value: di.version || '–' },

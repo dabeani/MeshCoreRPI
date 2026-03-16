@@ -339,7 +339,14 @@ def _compute_packet_header_breakdown_from_text(text: str, source: str = "") -> d
         "txt": 0,
         "ack": 0,
         "advert": 0,
+        "grp_txt": 0,
+        "grp_data": 0,
+        "anon_req": 0,
         "path": 0,
+        "trace": 0,
+        "multipart": 0,
+        "control": 0,
+        "raw_custom": 0,
     }
     code_to_payload = {
         0x00: "req",
@@ -347,7 +354,14 @@ def _compute_packet_header_breakdown_from_text(text: str, source: str = "") -> d
         0x02: "txt",
         0x03: "ack",
         0x04: "advert",
+        0x05: "grp_txt",
+        0x06: "grp_data",
+        0x07: "anon_req",
         0x08: "path",
+        0x09: "trace",
+        0x0A: "multipart",
+        0x0B: "control",
+        0x0F: "raw_custom",
     }
     total_rx = 0
 
