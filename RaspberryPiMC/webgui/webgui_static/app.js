@@ -2133,7 +2133,13 @@ function wireUi() {
   });
 
   // Quick actions
-  document.getElementById('btn-clear-stats')?.addEventListener('click', () => sendCommand('clear_stats'));
+  document.getElementById('btn-clear-stats')?.addEventListener('click', () => {
+    sendCommand('clear_stats');
+    // Reset cached stats so charts start from zero
+    app.headerStats = null;
+    app.headerStatsLastFetch = 0;
+    renderPacketStats(null);
+  });
   document.getElementById('btn-mode-fwd')?.addEventListener('click', () =>
     sendCommand('set_mode', { mode: 'forward' }).then(d =>
       alert(d?.payload ? `Mode → Forward (repeat=1)\n${d.payload.reply || ''}` : d?.error)
