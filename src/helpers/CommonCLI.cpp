@@ -636,7 +636,7 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         savePrefs();
         _callbacks->setTxPower(_prefs->tx_power_dbm);
         strcpy(reply, "OK");
-      } else if (sender_timestamp == 0 && memcmp(config, "freq ", 5) == 0) {
+      } else if (memcmp(config, "freq ", 5) == 0) {
         _prefs->freq = atof(&config[5]);
         savePrefs();
         strcpy(reply, "OK - reboot to apply");
@@ -859,7 +859,7 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
     } else if (memcmp(command, "log erase", 9) == 0) {
       _callbacks->eraseLogFile();
       strcpy(reply, "   log erased");
-    } else if (sender_timestamp == 0 && memcmp(command, "log", 3) == 0) {
+    } else if (memcmp(command, "log", 3) == 0) {
       _callbacks->dumpLogFile();
       strcpy(reply, "   EOF");
     } else if (memcmp(command, "stats-packets", 13) == 0 && (command[13] == 0 || command[13] == ' ')) {

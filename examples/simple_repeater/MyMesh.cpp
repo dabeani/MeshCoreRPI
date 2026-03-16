@@ -1419,7 +1419,7 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
         strcpy(reply, "Err - bad pubkey");
       }
     }
-  } else if (sender_timestamp == 0 && strcmp(command, "get acl") == 0) {
+  } else if (strcmp(command, "get acl") == 0) {
     Serial.println("ACL:");
     for (int i = 0; i < acl.getNumClients(); i++) {
       auto c = acl.getClientByIdx(i);
