@@ -2327,7 +2327,25 @@ function wireUi() {
   let resizeTimer = null;
   window.addEventListener('resize', () => {
     if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => adjustLogBoxSize(), 40);
+    resizeTimer = setTimeout(() => {
+      // Resize log box
+      adjustLogBoxSize();
+      
+      // Resize map if on dashboard
+      if (app.activeTab === 'dashboard') {
+        mcMap.invalidateSize();
+      }
+      
+      // Resize charts if on charts tab
+      if (app.activeTab === 'charts' && app.snap) {
+        renderCharts(app.snap);
+      }
+      
+      // Re-render contacts if on contacts tab
+      if (app.activeTab === 'contacts' && app.snap) {
+        renderContacts(app.snap, document.getElementById('contact-search')?.value || '');
+      }
+    }, 40);
   });
 
   // Helper: lock all identity buttons during an async operation
