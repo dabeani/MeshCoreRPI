@@ -304,6 +304,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         sprintf(reply, "> %d", ((uint32_t) _prefs->flood_advert_interval));
       } else if (memcmp(config, "advert.interval", 15) == 0) {
         sprintf(reply, "> %d", ((uint32_t) _prefs->advert_interval) * 2);
+      } else if (memcmp(config, "password", 8) == 0 && (config[8] == 0 || config[8] == ' ')) {
+        strcpy(reply, "> ***");  // admin password is never exposed via get
       } else if (memcmp(config, "guest.password", 14) == 0) {
         sprintf(reply, "> %s", _prefs->guest_password);
       } else if (sender_timestamp == 0 && memcmp(config, "prv.key", 7) == 0) {  // from serial command line only
@@ -492,6 +494,10 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
           savePrefs();
           strcpy(reply, "OK");
         }
+      } else if (memcmp(config, "password ", 9) == 0) {
+        StrHelper::strncpy(_prefs->password, &config[9], sizeof(_prefs->password));
+        savePrefs();
+        sprintf(reply, "password now: %s", _prefs->password);
       } else if (memcmp(config, "guest.password ", 15) == 0) {
         StrHelper::strncpy(_prefs->guest_password, &config[15], sizeof(_prefs->guest_password));
         savePrefs();
@@ -699,6 +705,9 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       } else {
         sprintf(reply, "unknown config: %s", config);
       }
+    } else if (strcmp(command, "save") == 0) {
+      _callbacks->savePrefs();
+      strcpy(reply, "OK");
     } else if (sender_timestamp == 0 && strcmp(command, "erase") == 0) {
       bool s = _callbacks->formatFileSystem();
       sprintf(reply, "File system erase: %s", s ? "OK" : "Err");
@@ -853,13 +862,13 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
     } else if (sender_timestamp == 0 && memcmp(command, "log", 3) == 0) {
       _callbacks->dumpLogFile();
       strcpy(reply, "   EOF");
-    } else if (sender_timestamp == 0 && memcmp(command, "stats-packets", 13) == 0 && (command[13] == 0 || command[13] == ' ')) {
+    } else if (memcmp(command, "stats-packets", 13) == 0 && (command[13] == 0 || command[13] == ' ')) {
       _callbacks->formatPacketStatsReply(reply);
-    } else if (sender_timestamp == 0 && memcmp(command, "stats-radio", 11) == 0 && (command[11] == 0 || command[11] == ' ')) {
+    } else if (memcmp(command, "stats-radio", 11) == 0 && (command[11] == 0 || command[11] == ' ')) {
       _callbacks->formatRadioStatsReply(reply);
     } else if (memcmp(command, "radio-diag", 10) == 0 && (command[10] == 0 || command[10] == ' ')) {
       _callbacks->formatRadioDiagReply(reply);
-    } else if (sender_timestamp == 0 && memcmp(command, "stats-core", 10) == 0 && (command[10] == 0 || command[10] == ' ')) {
+    } else if (memcmp(command, "stats-core", 10) == 0 && (command[10] == 0 || command[10] == ' ')) {
       _callbacks->formatStatsReply(reply);
     } else {
       strcpy(reply, "Unknown command");
