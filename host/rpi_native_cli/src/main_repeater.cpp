@@ -505,6 +505,7 @@ int main(int argc, char** argv) {
     FILESYSTEM* fs = &LittleFS;
     sensors.begin();
     the_mesh.begin(fs);
+    the_mesh.clearStats();  // Zero statistics on startup
 
     // begin() loads persisted prefs and may reset radio params; re-apply
     // explicit runtime CLI radio overrides after begin().

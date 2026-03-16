@@ -245,6 +245,7 @@ int main(int argc, char** argv) {
 
     fast_rng.begin(static_cast<long>(radio_get_rng_seed()));
     the_mesh.begin(false);
+    the_mesh.clearStats();  // Zero statistics on startup
 
     // begin() loads persisted prefs and may reset radio params; re-apply
     // explicit runtime CLI radio overrides after begin().
