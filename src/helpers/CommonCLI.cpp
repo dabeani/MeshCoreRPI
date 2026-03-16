@@ -306,7 +306,7 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         sprintf(reply, "> %d", ((uint32_t) _prefs->advert_interval) * 2);
       } else if (memcmp(config, "password", 8) == 0 && (config[8] == 0 || config[8] == ' ')) {
         strcpy(reply, "> ***");  // admin password is never exposed via get
-      } else if (memcmp(config, "guest.password", 14) == 0) {
+      } else if (strcmp(config, "guest.password") == 0) {
         sprintf(reply, "> %s", _prefs->guest_password);
       } else if (sender_timestamp == 0 && memcmp(config, "prv.key", 7) == 0) {  // from serial command line only
         uint8_t prv_key[PRV_KEY_SIZE];
@@ -498,10 +498,15 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         StrHelper::strncpy(_prefs->password, &config[9], sizeof(_prefs->password));
         savePrefs();
         sprintf(reply, "password now: %s", _prefs->password);
-      } else if (memcmp(config, "guest.password ", 15) == 0) {
+      } else if (strlen(config) >= 15 && memcmp(config, "guest.password ", 15) == 0) {
         StrHelper::strncpy(_prefs->guest_password, &config[15], sizeof(_prefs->guest_password));
         savePrefs();
         strcpy(reply, "OK");
+      } else if (strcmp(config, "guest.password") == 0) {
+        // Clear guest password if no value provided
+        _prefs->guest_password[0] = 0;
+        savePrefs();
+        strcpy(reply, "OK - guest password cleared");
       } else if (memcmp(config, "prv.key ", 8) == 0) {
         uint8_t prv_key[PRV_KEY_SIZE];
         bool success = mesh::Utils::fromHex(prv_key, PRV_KEY_SIZE, &config[8]);
