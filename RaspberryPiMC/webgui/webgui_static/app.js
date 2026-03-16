@@ -551,10 +551,7 @@ async function refreshPacketStats() {
   } finally {
     app.headerStatsFetching = false;
     renderPacketStats(app.headerStats);
-    // Update live charts if on charts tab
-    if (app.activeTab === 'charts') {
-      renderCharts(null);
-    }
+    // No longer clear charts after updating stats
   }
 }
 
