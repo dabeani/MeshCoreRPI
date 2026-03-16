@@ -998,45 +998,34 @@ function drawBarChart(canvas, data, colors) {
 }
 
 function renderCharts(snap) {
-  // No cached historical data - show only current values
-  const stats = snap?.stats || {};
-  const core = stats.core || {};
-  const radio = stats.radio || {};
-  const packets = stats.packets || {};
+  // Use app.history for all line charts
+  const h = app.history && app.history.ts?.length ? app.history : (snap?.history || {});
+  const ts = h.ts || [];
 
-  // Clear all chart canvases first
-  ['chart-traffic', 'chart-radio', 'chart-noise', 'chart-routing', 'chart-payload'].forEach(id => {
-    const canvas = document.getElementById(id);
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#080e1e';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#7a8fc7';
-      ctx.font = '12px system-ui';
-      ctx.fillText('No data', 16, 24);
-    }
-  });
-
-  // Show current values as simple text indicators instead of charts
-  updateChartWithCurrentValue('chart-traffic', 'Packet Traffic', [
-    `RX: ${packets.recv || 0}`,
-    `TX: ${packets.sent || 0}`,
-    `Drop: ${packets.drop || packets.recv_errors || 0}`
+  // Packet Traffic: RX, TX, Drop
+  drawChart(document.getElementById('chart-traffic'), ts, [
+    { label: 'RX',   data: h.rx   || [], color: '#58a6ff', fill: true },
+    { label: 'TX',   data: h.tx   || [], color: '#2ecc71', fill: false },
+    { label: 'Drop', data: h.drop || [], color: '#ff6b6b', fill: false, dash: [4,3] },
   ]);
 
-  updateChartWithCurrentValue('chart-radio', 'Radio Quality', [
-    `RSSI: ${radio.last_rssi != null ? radio.last_rssi + ' dBm' : '–'}`,
-    `SNR: ${radio.last_snr != null ? radio.last_snr + ' dB' : '–'}`
+  // Radio Quality: RSSI, SNR
+  drawChart(document.getElementById('chart-radio'), ts, [
+    { label: 'RSSI', data: h.rssi || [], color: '#f9ca24', fill: false },
+    { label: 'SNR',  data: h.snr  || [], color: '#38bdf8', fill: false },
   ]);
 
-  updateChartWithCurrentValue('chart-noise', 'System Status', [
-    `Noise: ${radio.noise_floor != null ? radio.noise_floor + ' dBm' : '–'}`,
-    `Queue: ${core.queue_len || 0}`,
-    `Uptime: ${fmtUptime(core.uptime_secs)}`
+  // Noise Floor & Queue
+  drawChart(document.getElementById('chart-noise'), ts, [
+    { label: 'Noise', data: h.noise_floor || [], color: '#a78bfa', fill: true },
+    { label: 'Queue', data: h.queue       || [], color: '#ff6b6b', fill: false, dash: [2,2] },
   ]);
 
-  // Header charts are rendered separately by renderPacketStats()
+  // Routing Types (header chart)
+  renderPacketStats(app.headerStats);
+
+  // Payload Types (header chart)
+  // Already handled by renderPacketStats
 }
 
 function updateChartWithCurrentValue(canvasId, title, values) {
