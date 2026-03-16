@@ -195,27 +195,7 @@ button:hover { border-color: var(--accent); background: #1f3268; }
 .chart-wide { grid-column: span 2; }
 
 /* ─────────────── Packet Statistics (Charts Tab) ─────────────── */
-.pktstats-list { display: flex; flex-direction: column; gap: 10px; }
-.pktstats-group h3 { color: var(--muted); font-size: 12px; font-weight: 600; margin: 0 0 10px; }
-.pktstats-row { display: flex; flex-direction: column; gap: 6px; }
-.pktstats-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.pktstats-label { color: var(--text2); font-size: 12px; }
-.pktstats-count { color: var(--text); font-weight: 700; font-size: 12px; }
-.pktstats-track {
-  height: 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border2);
-  background: var(--bg2);
-  overflow: hidden;
-}
-.pktstats-fill { height: 100%; border-radius: 999px; background: var(--accent); }
-.pktstats-fill.c1 { background: var(--accent); }
-.pktstats-fill.c2 { background: var(--ok); }
-.pktstats-fill.c3 { background: var(--warn); }
-.pktstats-fill.c4 { background: var(--err); }
-.pktstats-fill.c5 { background: var(--text2); }
-.pktstats-fill.c6 { background: var(--muted); }
-.pktstats-empty { color: var(--muted); font-size: 12px; }
+/* Packet stats now use chart-card styling */
 
 /* ─────────────── System mini charts (dashboard) ─────────────── */
 .sys-chart { width: 100%; display: block; height: 92px; margin-top: 8px; }

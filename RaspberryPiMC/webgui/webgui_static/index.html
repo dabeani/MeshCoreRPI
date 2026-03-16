@@ -115,13 +115,15 @@
             <h2>Packet Header Breakdown</h2>
             <span id="pktstats-total" class="muted-txt"></span>
           </div>
-          <div class="pktstats-group">
-            <h3>Routing Type (Bits 0-1)</h3>
-            <div id="pktstats-routing-bars" class="pktstats-list"></div>
-          </div>
-          <div class="pktstats-group mt-14">
-            <h3>Payload Type (Bits 2-5)</h3>
-            <div id="pktstats-payload-bars" class="pktstats-list"></div>
+          <div class="chart-grid">
+            <div class="panel chart-card">
+              <div class="panel-header"><h3>Routing Type (Bits 0-1)</h3></div>
+              <canvas id="chart-routing" height="160"></canvas>
+            </div>
+            <div class="panel chart-card">
+              <div class="panel-header"><h3>Payload Type (Bits 2-5)</h3></div>
+              <canvas id="chart-payload" height="160"></canvas>
+            </div>
           </div>
         </div>
       </section><!-- /charts -->

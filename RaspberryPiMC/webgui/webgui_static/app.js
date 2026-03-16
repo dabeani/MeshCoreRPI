@@ -555,10 +555,10 @@ async function refreshPacketStats() {
 }
 
 function renderPacketStats(stats) {
-  const routingEl = document.getElementById('pktstats-routing-bars');
-  const payloadEl = document.getElementById('pktstats-payload-bars');
+  const routingCanvas = document.getElementById('chart-routing');
+  const payloadCanvas = document.getElementById('chart-payload');
   const totalEl = document.getElementById('pktstats-total');
-  if (!routingEl || !payloadEl || !totalEl) return;
+  if (!routingCanvas || !payloadCanvas || !totalEl) return;
 
   const routingCounts = stats?.routing || {
     transport_flood: 0,
@@ -583,57 +583,35 @@ function renderPacketStats(stats) {
   };
   totalEl.textContent = `${Number(stats?.total_rx || 0)} RX packets`;
 
-  _renderFixedBars(
-    routingEl,
-    {
-      transport_flood: '0x00 Transport Flood',
-      flood: '0x01 Flood',
-      direct: '0x02 Direct',
-      transport_direct: '0x03 Transport Direct',
-    },
-    routingCounts,
-    {
-      transport_flood: 'c1',
-      flood: 'c2',
-      direct: 'c3',
-      transport_direct: 'c4',
-    },
-  );
+  // Routing chart data
+  const routingData = [
+    { label: 'Trans Flood', value: routingCounts.transport_flood },
+    { label: 'Flood', value: routingCounts.flood },
+    { label: 'Direct', value: routingCounts.direct },
+    { label: 'Trans Direct', value: routingCounts.transport_direct },
+  ];
 
-  _renderFixedBars(
-    payloadEl,
-    {
-      req: '0x00 REQ',
-      resp: '0x01 RESP',
-      txt: '0x02 TXT',
-      ack: '0x03 ACK',
-      advert: '0x04 ADVERT',
-      grp_txt: '0x05 GRP_TXT',
-      grp_data: '0x06 GRP_DATA',
-      anon_req: '0x07 ANON_REQ',
-      path: '0x08 PATH',
-      trace: '0x09 TRACE',
-      multipart: '0x0A MULTIPART',
-      control: '0x0B CONTROL',
-      raw_custom: '0x0F RAW_CUSTOM',
-    },
-    payloadCounts,
-    {
-      req: 'c1',
-      resp: 'c2',
-      txt: 'c3',
-      ack: 'c4',
-      advert: 'c5',
-      grp_txt: 'c6',
-      grp_data: 'c7',
-      anon_req: 'c8',
-      path: 'c9',
-      trace: 'c10',
-      multipart: 'c11',
-      control: 'c12',
-      raw_custom: 'c13',
-    },
-  );
+  // Payload chart data
+  const payloadData = [
+    { label: 'REQ', value: payloadCounts.req },
+    { label: 'RESP', value: payloadCounts.resp },
+    { label: 'TXT', value: payloadCounts.txt },
+    { label: 'ACK', value: payloadCounts.ack },
+    { label: 'ADV', value: payloadCounts.advert },
+    { label: 'GRP_T', value: payloadCounts.grp_txt },
+    { label: 'GRP_D', value: payloadCounts.grp_data },
+    { label: 'ANON', value: payloadCounts.anon_req },
+    { label: 'PATH', value: payloadCounts.path },
+    { label: 'TRACE', value: payloadCounts.trace },
+    { label: 'MULTI', value: payloadCounts.multipart },
+    { label: 'CTRL', value: payloadCounts.control },
+    { label: 'CUSTOM', value: payloadCounts.raw_custom },
+  ];
+
+  const colors = ['#58a6ff', '#2ecc71', '#f4c430', '#ff6b6b', '#a78bfa', '#38bdf8', '#ff6b6b', '#7a8fc7', '#58a6ff', '#2ecc71', '#f4c430', '#ff6b6b', '#a78bfa'];
+
+  drawBarChart(routingCanvas, routingData, colors);
+  drawBarChart(payloadCanvas, payloadData, colors);
 }
 
 // ─── Stat Cards ──────────────────────────────────────
@@ -949,6 +927,72 @@ function updateChartsLiveAge(ts) {
   }
   const ageSec = Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(last));
   el.textContent = `Last sample: ${ageSec}s ago`;
+}
+
+function drawBarChart(canvas, data, colors) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width  > 4 ? rect.width  : (canvas.parentElement?.clientWidth  || 600);
+  const H = rect.height > 4 ? rect.height : 180;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = '#080e1e';
+  ctx.fillRect(0, 0, W, H);
+
+  if (!data || data.length === 0) {
+    ctx.fillStyle = '#7a8fc7';
+    ctx.font = '12px system-ui';
+    ctx.fillText('No data', 16, 24);
+    return;
+  }
+
+  const pad = { l: 60, r: 20, t: 20, b: 60 };
+  const pw = W - pad.l - pad.r;
+  const ph = H - pad.t - pad.b;
+
+  const maxVal = Math.max(...data.map(d => d.value || 0));
+  const barWidth = pw / data.length * 0.8;
+  const barSpacing = pw / data.length * 0.2;
+
+  // Draw bars
+  data.forEach((item, i) => {
+    const value = item.value || 0;
+    const height = maxVal > 0 ? (value / maxVal) * ph : 0;
+    const x = pad.l + i * (barWidth + barSpacing);
+    const y = pad.t + ph - height;
+
+    // Bar
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fillRect(x, y, barWidth, height);
+
+    // Label
+    ctx.fillStyle = '#7a8fc7';
+    ctx.font = '10px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(item.label, x + barWidth / 2, H - 10);
+
+    // Value
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '11px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(value.toString(), x + barWidth / 2, y - 5);
+  });
+
+  // Y-axis labels
+  ctx.fillStyle = '#7a8fc7';
+  ctx.font = '10px system-ui';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + ph * (1 - i / 4);
+    const val = Math.round(maxVal * (i / 4));
+    ctx.fillText(val.toString(), pad.l - 5, y + 3);
+  }
 }
 
 function renderCharts(snap) {
@@ -2020,7 +2064,13 @@ function renderAll(snap) {
   renderEvents(snap.events || []);
 
   // Tab-specific renders
-  if (app.activeTab === 'charts')   renderCharts(snap);
+  if (app.activeTab === 'charts') {
+    renderCharts(snap);
+    if ((Date.now() - app.headerStatsLastFetch) > 2500 && !app.headerStatsFetching) {
+      refreshPacketStats();
+    }
+    renderPacketStats(app.headerStats);
+  }
   if (app.activeTab === 'stats') {
     if ((Date.now() - app.headerStatsLastFetch) > 2500 && !app.headerStatsFetching) {
       refreshPacketStats();
