@@ -2849,12 +2849,12 @@ function connectWebSocket() {
     sendCommand('get_hardware_stats').then(d => { if (d?.ok && d.payload) updateHwStats(d.payload); });
   }, 30000);
 
-  // Periodic header stats refresh (every 5s for live updates)
+  // Periodic header stats refresh (every 1s for live updates)
   setInterval(() => {
     if (app.activeTab === 'charts' && !app.headerStatsFetching) {
       refreshPacketStats();
     }
-  }, 5000);
+  }, 1000);
 
   setInterval(updateWsStatusPanel, 1000);
 
