@@ -32,11 +32,14 @@
     _flags = app_data[0];
     _valid = false;
     _extra1 = _extra2 = 0;
+    _has_loc = false;
   
     int i = 1;
-    if (_flags & ADV_LATLON_MASK) {
+    // Parse lat/lon if there's enough data and either flag is set or no feature flags are set
+    if (i + 8 <= app_data_len && (_flags & ADV_LATLON_MASK || !(_flags & (ADV_FEAT1_MASK | ADV_FEAT2_MASK)))) {
       memcpy(&_lat, &app_data[i], 4); i += 4;
       memcpy(&_lon, &app_data[i], 4); i += 4;
+      _has_loc = true;
     }
     if (_flags & ADV_FEAT1_MASK) {
       memcpy(&_extra1, &app_data[i], 2); i += 2;

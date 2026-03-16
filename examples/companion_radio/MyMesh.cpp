@@ -2054,3 +2054,9 @@ bool MyMesh::advert() {
     return false;
   }
 }
+
+void MyMesh::clearStats() {
+  radio_driver.resetStats();
+  resetStats();
+  ((SimpleMeshTables *)getTables())->resetStats();
+}

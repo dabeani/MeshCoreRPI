@@ -43,6 +43,7 @@ public:
 class AdvertDataParser {
   uint8_t _flags;
   bool _valid;
+  bool _has_loc;
   char _name[MAX_ADVERT_DATA_SIZE];
   int32_t _lat, _lon;
   uint16_t _extra1;
@@ -58,7 +59,7 @@ public:
   bool hasName() const { return _name[0] != 0; }
   const char* getName() const { return _name; }
 
-  bool hasLatLon() const { return (_flags & ADV_LATLON_MASK) != 0; }
+  bool hasLatLon() const { return _has_loc; }
   int32_t getIntLat() const { return _lat; }
   int32_t getIntLon() const { return _lon; }
   double getLat() const { return ((double)_lat) / 1000000.0; }
