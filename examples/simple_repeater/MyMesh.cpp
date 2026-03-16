@@ -1300,7 +1300,7 @@ void MyMesh::formatRadioDiagReply(char *reply) {
       "\"last_rssi\":%.1f,\"last_snr\":%.2f,\"noise_floor\":%d}",
           radio_driver.getDriverName(), st, irq, irq, errs, errs,
       cfg.spi_dev_prefix.c_str(), cfg.spi_bus, cfg.spi_cs, cfg.spi_speed_hz,
-          cfg.frequency_hz, cfg.bandwidth_hz, cfg.spreading_factor, cfg.coding_rate, cfg.tx_power_dbm,
+          (int)_prefs->freq, (int)_prefs->bw, _prefs->sf, _prefs->cr, _prefs->tx_power_dbm,
           cfg.preamble_len, cfg.sync_word,
       cfg.cs_pin, cfg.reset_pin, cfg.busy_pin, cfg.irq_pin, cfg.txen_pin, cfg.rxen_pin,
       cfg.use_dio2_rf_switch ? 1 : 0, cfg.use_dio3_tcxo ? 1 : 0, cfg.tcxo_voltage, cfg.tcxo_delay_us,
