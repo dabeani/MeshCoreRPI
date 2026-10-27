@@ -1,6 +1,8 @@
 #pragma once
 
 #include "LinuxRadioBase.h"
+#include "Ch341MeshStickTransport.h"
+#include <memory>
 
 #include <cstdint>
 #include <string>
@@ -42,6 +44,7 @@ public:
 private:
   Config cfg;
   int spi_fd = -1;
+  std::unique_ptr<raspmeshcore::RadioTransport> usb_transport;
   bool tx_pending = false;
   bool rx_mode = false;
   float last_rssi = -120.0f;

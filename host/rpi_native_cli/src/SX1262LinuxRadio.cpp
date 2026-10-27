@@ -1,4 +1,5 @@
 #include "SX1262LinuxRadio.h"
+#include "SX1262Status.h"
 
 #ifdef __linux__
 #include <dirent.h>
@@ -34,6 +35,7 @@ SX1262LinuxRadio::SX1262LinuxRadio(const Config& cfg_) : cfg(cfg_) {}
 
 SX1262LinuxRadio::~SX1262LinuxRadio() {
 #ifdef __linux__
+  usb_transport.reset();
   if (spi_fd >= 0) {
     close(spi_fd);
     spi_fd = -1;
@@ -86,6 +88,11 @@ std::string SX1262LinuxRadio::gpioNodePath(int pin, const std::string& node) {
 
 void SX1262LinuxRadio::openSpi() {
 #ifdef __linux__
+  if (cfg.spi_dev_prefix == "usb_ch341") {
+    usb_transport.reset(new raspmeshcore::Ch341MeshStickTransport(cfg.busy_pin));
+    usb_transport->open();
+    return;
+  }
   const std::string dev = cfg.spi_dev_prefix + std::to_string(cfg.spi_bus) + "." + std::to_string(cfg.spi_cs);
   spi_fd = open(dev.c_str(), O_RDWR);
   if (spi_fd < 0) {
@@ -111,6 +118,7 @@ void SX1262LinuxRadio::openSpi() {
 void SX1262LinuxRadio::spiTransfer(const uint8_t* tx, uint8_t* rx, size_t len) {
 #ifdef __linux__
   if (len == 0) return;
+  if (usb_transport) { usb_transport->transfer(tx, rx, len); return; }
   if (spi_fd < 0) throw std::runtime_error("SPI not opened");
 
   if (cfg.cs_pin >= 0) gpioWrite(cfg.cs_pin, 0);
@@ -131,6 +139,7 @@ void SX1262LinuxRadio::spiTransfer(const uint8_t* tx, uint8_t* rx, size_t len) {
 }
 
 void SX1262LinuxRadio::gpioExport(int pin) {
+  if (usb_transport) return;
   if (pin < 0) return;
 
   const int sysfs_pin = toSysfsPin(pin);
@@ -145,6 +154,7 @@ void SX1262LinuxRadio::gpioExport(int pin) {
 }
 
 void SX1262LinuxRadio::gpioDirection(int pin, const char* mode) {
+  if (usb_transport) return;
   if (pin < 0) return;
 
   std::ofstream dir(gpioNodePath(pin, "direction"));
@@ -152,6 +162,12 @@ void SX1262LinuxRadio::gpioDirection(int pin, const char* mode) {
 }
 
 void SX1262LinuxRadio::gpioWrite(int pin, int value) {
+  if (usb_transport) {
+    if (pin < 0) return;
+    if (pin == cfg.cs_pin) { usb_transport->write(raspmeshcore::RadioSignal::ChipSelect, value != 0); return; }
+    if (pin == cfg.reset_pin) { usb_transport->write(raspmeshcore::RadioSignal::Reset, value != 0); return; }
+    throw std::runtime_error("CH341: unsupported output pin");
+  }
   if (pin < 0) return;
 
   std::ofstream v(gpioNodePath(pin, "value"));
@@ -159,6 +175,11 @@ void SX1262LinuxRadio::gpioWrite(int pin, int value) {
 }
 
 int SX1262LinuxRadio::gpioRead(int pin) {
+  if (usb_transport) {
+    if (pin == cfg.busy_pin) return usb_transport->read(raspmeshcore::RadioSignal::Busy);
+    if (pin == cfg.irq_pin) return usb_transport->read(raspmeshcore::RadioSignal::Dio1);
+    throw std::runtime_error("CH341: unsupported input pin");
+  }
   if (pin < 0) return 0;
 
   std::ifstream v(gpioNodePath(pin, "value"));
@@ -181,6 +202,8 @@ void SX1262LinuxRadio::waitBusyLow() {
     if (gpioRead(cfg.busy_pin) == 0) return;
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
+  if (usb_transport)
+    throw std::runtime_error("SX1262 BUSY did not go low (check pin map and radio power)");
 }
 
 void SX1262LinuxRadio::spiCommand(uint8_t cmd, const uint8_t* payload, int payload_len) {
@@ -477,6 +500,11 @@ void SX1262LinuxRadio::begin() {
   throw std::runtime_error("RaspberryPiMC_native runtime is Linux-only");
 #endif
 
+  if (cfg.spi_dev_prefix == "usb_ch341") {
+    if (cfg.txen_pin >= 0 || cfg.rxen_pin >= 0)
+      throw std::runtime_error("CH341: set TXEN and RXEN to -1 (DIO2 RF switch)");
+    openSpi();
+  }
   // GPIO setup (sysfs) for SX1262 control pins.
   gpioExport(cfg.cs_pin);
   gpioExport(cfg.reset_pin);
@@ -493,10 +521,12 @@ void SX1262LinuxRadio::begin() {
   if (cfg.rxen_pin >= 0) gpioDirection(cfg.rxen_pin, "out");
 
   // Inactive high for manual CS.
-  if (cfg.cs_pin >= 0) gpioWrite(cfg.cs_pin, 1);
+  if (cfg.cs_pin >= 0 && !usb_transport) gpioWrite(cfg.cs_pin, 1);
 
-  openSpi();
+  if (!usb_transport) openSpi();
   gpioPulseReset();
+  if (usb_transport && !sx1262StatusPlausible(spiReadStatusByte(0xC0)))
+    throw std::runtime_error("SX1262 did not respond to GetStatus after RESET (SPI MISO/CS/power)");
 
   sxSetStandby();
 
@@ -521,6 +551,8 @@ void SX1262LinuxRadio::begin() {
   sxSetDioIrqMask(static_cast<uint16_t>(IRQ_TX_DONE | IRQ_RX_DONE | IRQ_CRC_ERR | IRQ_TIMEOUT));
   sxClearIrq();
   sxSetRxContinuous();
+  if (usb_transport && !sx1262StatusPlausible(spiReadStatusByte(0xC0)))
+    throw std::runtime_error("SX1262 lost SPI communication during initialization");
 
   noise_threshold = DEFAULT_SAMPLING_THRESHOLD;
   floor_samples = 0;
